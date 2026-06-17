@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+
 
 export type FormData = Record<string, unknown>;
 
@@ -40,8 +40,6 @@ export interface FormViewProps {
 export interface FormComponent {
   formCode: string;
   metadata: FormMetadata;
-  FormView: React.FC<FormViewProps>;
-  FormEdit: React.FC<FormEditProps>;
   validate: (data: FormData) => ValidationErrors;
   initialData: () => FormData;
 }
