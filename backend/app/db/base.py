@@ -1,6 +1,20 @@
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
+from urllib.parse import urlparse
+
+
+def describe_database_target(database_url: str) -> str:
+    if database_url.startswith("sqlite"):
+        return f"sqlite ({database_url})"
+
+    parsed = urlparse(database_url)
+    scheme = parsed.scheme or "unknown"
+    host = parsed.hostname or "unknown-host"
+    port = parsed.port or "default"
+    database = parsed.path.lstrip("/") or "default-db"
+    username = parsed.username or "unknown-user"
+    return f"{scheme}://{username}:***@{host}:{port}/{database}"
 
 engine = create_engine(
     settings.DATABASE_URL,
