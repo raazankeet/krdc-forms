@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.core.exceptions import AppException
-from app.db.base import Base, engine, ensure_schema_compatibility
+from app.db.base import Base, engine, SessionLocal, ensure_schema_compatibility
 
 
 @asynccontextmanager
@@ -13,6 +13,26 @@ async def lifespan(app: FastAPI):
     # Startup: create tables (for development; use Alembic in production)
     Base.metadata.create_all(bind=engine)
     ensure_schema_compatibility()
+
+    # Auto-seed database if empty (first deploy)
+    try:
+        db = SessionLocal()
+        from app.models import User
+        user_count = db.query(User).count()
+        if user_count == 0:
+            print("Empty database detected — running auto-seed...")
+            from app.db.seed import seed_permissions, seed_roles, seed_users, seed_forms, seed_assignments
+            perms = seed_permissions(db)
+            roles = seed_roles(db, perms)
+            seed_users(db, roles)
+            forms = seed_forms(db)
+            seed_assignments(db, forms)
+            print("Auto-seed complete! Default credentials (password: password123):")
+            print("  admin / approver1 / reviewer1 / researcher1 / researcher2")
+        db.close()
+    except Exception as e:
+        print(f"Auto-seed skipped (may already be seeded): {e}")
+
     yield
     # Shutdown
 
