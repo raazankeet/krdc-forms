@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
   Box, Card, Typography, TextField, Button, InputAdornment,
-  Alert, CircularProgress, Divider,
+  Alert, CircularProgress,
 } from '@mui/material';
 import { Person, Lock, Science } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
@@ -147,17 +147,6 @@ export default function LoginPage() {
           >
             {loading ? 'Signing in...' : 'Sign In'}
           </Button>
-        </Box>
-
-        <Divider sx={{ my: 3 }} />
-
-        <Box sx={{ textAlign: 'center' }}>
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5 }}>
-            Demo Credentials
-          </Typography>
-          <Typography variant="caption" color="text.disabled">
-            admin / password123 &bull; researcher1 / password123
-          </Typography>
         </Box>
       </Card>
     </Box>

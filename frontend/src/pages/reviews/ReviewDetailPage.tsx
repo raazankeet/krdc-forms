@@ -167,6 +167,46 @@ export default function ReviewDetailPage() {
     ((isReviewer && isReviewerStage) || (isApprover && isApproverStage))
     && isAssignedToCurrentUser;
   const showActionPanel = canStartReview || canRequestChanges || canApproveOrReject;
+
+  const confirmDialogConfig = (() => {
+    switch (confirmAction) {
+      case 'start-review':
+        return {
+          title: isReviewerStage ? 'Start Review' : 'Start Approval',
+          message: isReviewerStage
+            ? 'This will check out the request to you and move it into the active review stage.'
+            : 'This will check out the request to you and move it into the active approval stage.',
+          confirmLabel: isReviewerStage ? 'Start Review' : 'Start Approval',
+          confirmColor: 'primary' as const,
+        };
+      case 'approve':
+        return {
+          title: isReviewerStage ? 'Send To Approver' : 'Approve Request',
+          message: isReviewerStage
+            ? 'This will complete your review and forward the request to the approver queue.'
+            : 'This will approve the request and complete the workflow.',
+          confirmLabel: isReviewerStage ? 'Send To Approver' : 'Approve',
+          confirmColor: isReviewerStage ? 'primary' as const : 'success' as const,
+        };
+      case 'reject':
+        return {
+          title: 'Send Back to Submitter',
+          message: 'This will return the request to the submitter for correction. A comment is required.',
+          confirmLabel: 'Send Back',
+          confirmColor: 'error' as const,
+        };
+      case 'request_changes':
+        return {
+          title: 'Request Changes',
+          message: 'This will send the request back to the submitter with your requested changes.',
+          confirmLabel: 'Request Changes',
+          confirmColor: 'warning' as const,
+        };
+      default:
+        return null;
+    }
+  })();
+
   return (
     <Box>
       <PageHeader
@@ -355,7 +395,7 @@ export default function ReviewDetailPage() {
                 variant="contained"
                 startIcon={actionLoading === 'start-review' ? <CircularProgress size={16} /> : <PlayArrow />}
                 disabled={!!actionLoading}
-                onClick={() => handleWorkflowAction('start-review')}
+                onClick={() => setConfirmAction('start-review')}
               >
                 {isReviewerStage ? 'Start Review' : 'Start Approval'}
               </Button>
@@ -367,7 +407,7 @@ export default function ReviewDetailPage() {
                   color={isReviewerStage ? 'primary' : 'success'}
                   startIcon={actionLoading === 'approve' ? <CircularProgress size={16} /> : <CheckCircle />}
                   disabled={!!actionLoading}
-                  onClick={() => handleWorkflowAction('approve')}
+                  onClick={() => setConfirmAction('approve')}
                 >
                   {isReviewerStage ? 'Send To Approver' : 'Approve'}
                 </Button>
@@ -401,12 +441,10 @@ export default function ReviewDetailPage() {
 
       <ConfirmDialog
         open={!!confirmAction}
-        title={confirmAction === 'reject' ? 'Send Back to Submitter' : 'Request Changes'}
-        message={confirmAction === 'reject'
-          ? 'This will return the request to the submitter for correction. A comment is required.'
-          : 'This will send the request back to the submitter with your requested changes.'}
-        confirmLabel={confirmAction === 'reject' ? 'Send Back' : 'Request Changes'}
-        confirmColor={confirmAction === 'reject' ? 'error' : 'warning'}
+        title={confirmDialogConfig?.title || 'Confirm Action'}
+        message={confirmDialogConfig?.message || 'Please confirm this action.'}
+        confirmLabel={confirmDialogConfig?.confirmLabel || 'Confirm'}
+        confirmColor={confirmDialogConfig?.confirmColor || 'primary'}
         loading={!!actionLoading}
         onConfirm={() => handleWorkflowAction(confirmAction!)}
         onCancel={() => setConfirmAction(null)}
