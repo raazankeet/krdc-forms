@@ -1,27 +1,168 @@
-"""Standalone seed script."""
-import sys, os, logging
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+"""Idempotent seed script for local SQLite and production Postgres."""
 
-# Suppress SQLAlchemy echo logs
-logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
-
-from app.db.base import engine, Base
-from app.core.security import get_password_hash
-
-from app.models.user import User, Role, Permission, UserRole, RolePermission
-from app.models.form import Form, FormFieldDefinition, FormAssignment, RequestNumbering
-from app.models.submission import Submission, SubmissionVersion, SubmissionComment, WorkflowAction
-from app.models.audit import AuditLog
+import logging
+import os
+import sys
 
 from sqlalchemy.orm import Session
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-print("Seeding database...")
-with Session(engine) as db:
-    print("[1/5] Creating permissions...")
-    perms_data = [
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
+from app.core.security import get_password_hash
+from app.db.base import SessionLocal
+from app.models.form import Form, FormAssignment, RequestNumbering
+from app.models.user import Permission, Role, RolePermission, User, UserRole
+from app.services.form_assignments import APPROVER_ROLE, REVIEWER_ROLE, SUBMITTER_ROLE
+
+
+def get_or_create_permission(
+    db: Session,
+    *,
+    code: str,
+    description: str,
+    resource: str,
+    action: str,
+) -> Permission:
+    permission = db.query(Permission).filter(Permission.code == code).first()
+    if permission:
+        permission.description = description
+        permission.resource = resource
+        permission.action = action
+        return permission
+
+    permission = Permission(
+        code=code,
+        description=description,
+        resource=resource,
+        action=action,
+    )
+    db.add(permission)
+    db.flush()
+    return permission
+
+
+def get_or_create_role(db: Session, *, name: str, description: str) -> Role:
+    role = db.query(Role).filter(Role.name == name).first()
+    if role:
+        role.description = description
+        return role
+
+    role = Role(name=name, description=description)
+    db.add(role)
+    db.flush()
+    return role
+
+
+def ensure_role_permissions(db: Session, role: Role, permission_codes: list[str], permissions: dict[str, Permission]) -> None:
+    existing_permission_ids = {row.permission_id for row in role.role_permissions}
+    for code in permission_codes:
+        permission = permissions[code]
+        if permission.id in existing_permission_ids:
+            continue
+        db.add(RolePermission(role_id=role.id, permission_id=permission.id))
+
+
+def get_or_create_user(
+    db: Session,
+    *,
+    username: str,
+    email: str,
+    full_name: str,
+    password: str,
+    role: Role,
+) -> User:
+    user = db.query(User).filter(User.username == username).first()
+    if user:
+        user.email = email
+        user.full_name = full_name
+        user.is_active = True
+    else:
+        user = User(
+            username=username,
+            email=email,
+            full_name=full_name,
+            password_hash=get_password_hash(password),
+            is_active=True,
+        )
+        db.add(user)
+        db.flush()
+
+    if not any(user_role.role_id == role.id for user_role in user.user_roles):
+        db.add(UserRole(user_id=user.id, role_id=role.id))
+
+    return user
+
+
+def get_or_create_form(
+    db: Session,
+    *,
+    form_code: str,
+    name: str,
+    description: str,
+    print_scale: float,
+) -> Form:
+    form = db.query(Form).filter(Form.form_code == form_code).first()
+    if form:
+        form.name = name
+        form.description = description
+        form.is_active = True
+        form.requires_approval = True
+        form.approval_levels = 1
+        form.print_scale = print_scale
+        return form
+
+    form = Form(
+        form_code=form_code,
+        name=name,
+        description=description,
+        is_active=True,
+        requires_approval=True,
+        approval_levels=1,
+        print_scale=print_scale,
+    )
+    db.add(form)
+    db.flush()
+    return form
+
+
+def ensure_request_numbering(db: Session, *, form: Form, prefix: str) -> None:
+    numbering = db.query(RequestNumbering).filter(RequestNumbering.form_id == form.id).first()
+    if numbering:
+        numbering.prefix = prefix
+        numbering.year_reset = True
+        return
+
+    db.add(
+        RequestNumbering(
+            form_id=form.id,
+            prefix=prefix,
+            year_reset=True,
+            current_sequence=0,
+            current_year=0,
+        )
+    )
+
+
+def ensure_form_assignment(db: Session, *, form_id: int, user_id: int, role: str) -> None:
+    existing = (
+        db.query(FormAssignment)
+        .filter(
+            FormAssignment.form_id == form_id,
+            FormAssignment.user_id == user_id,
+            FormAssignment.role == role,
+        )
+        .first()
+    )
+    if existing:
+        return
+
+    db.add(FormAssignment(form_id=form_id, user_id=user_id, role=role))
+
+
+def main() -> None:
+    permissions_cfg: list[tuple[str, str, str, str]] = [
         ("user.manage", "Manage users", "user", "manage"),
         ("user.view", "View users", "user", "view"),
         ("user.create", "Create users", "user", "create"),
@@ -52,52 +193,44 @@ with Session(engine) as db:
         ("report.view_user", "View user reports", "report", "view_user"),
         ("print.view", "Print submissions", "print", "view"),
     ]
-    
-    pmap = {}
-    for code, desc, resource, action in perms_data:
-        p = Permission(code=code, description=desc, resource=resource, action=action)
-        db.add(p)
-        db.flush()
-        pmap[code] = p
-    db.commit()
-    print(f"    Created {len(pmap)} permissions")
 
-    print("[2/5] Creating roles...")
-    roles_cfg = {
-        "Administrator": list(pmap.keys()),
+    role_cfg: dict[str, list[str]] = {
+        "Administrator": [code for code, *_ in permissions_cfg],
         "Approver": [
-            "submission.view", "submission.approve", "submission.reject",
-            "submission.request_changes", "review.view", "review.manage",
-            "report.view_reviewer", "print.view", "form.view", "form.view_assigned",
+            "submission.view",
+            "submission.approve",
+            "submission.reject",
+            "submission.request_changes",
+            "review.view",
+            "review.manage",
+            "report.view_reviewer",
+            "print.view",
+            "form.view",
+            "form.view_assigned",
         ],
         "Reviewer": [
-            "submission.view", "submission.request_changes",
-            "review.view", "review.manage",
-            "report.view_reviewer", "form.view", "form.view_assigned",
+            "submission.view",
+            "submission.approve",
+            "submission.request_changes",
+            "review.view",
+            "review.manage",
+            "report.view_reviewer",
+            "form.view",
+            "form.view_assigned",
         ],
         "Research User": [
-            "submission.create", "submission.view_own",
-            "submission.edit_draft", "submission.submit",
-            "submission.resubmit", "form.view_assigned",
-            "report.view_user", "print.view",
+            "submission.create",
+            "submission.view_own",
+            "submission.edit_draft",
+            "submission.submit",
+            "submission.resubmit",
+            "form.view_assigned",
+            "report.view_user",
+            "print.view",
         ],
     }
 
-    rmap = {}
-    for role_name, perm_codes in roles_cfg.items():
-        role = Role(name=role_name, description=f"{role_name} role")
-        db.add(role)
-        db.flush()
-        for code in perm_codes:
-            if code in pmap:
-                rp = RolePermission(role_id=role.id, permission_id=pmap[code].id)
-                db.add(rp)
-        rmap[role_name] = role
-    db.commit()
-    print(f"    Created {len(rmap)} roles")
-
-    print("[3/5] Creating users...")
-    users_cfg = [
+    users_cfg: list[tuple[str, str, str, str]] = [
         ("admin", "admin@glp-forms.local", "System Administrator", "Administrator"),
         ("approver1", "approver1@glp-forms.local", "Sarah Approver", "Approver"),
         ("reviewer1", "reviewer1@glp-forms.local", "James Reviewer", "Reviewer"),
@@ -105,72 +238,77 @@ with Session(engine) as db:
         ("researcher2", "researcher2@glp-forms.local", "Dr. Bob Scientist", "Research User"),
     ]
 
-    for username, email, full_name, role_name in users_cfg:
-        user = User(
-            username=username, email=email, full_name=full_name,
-            password_hash=get_password_hash("password123"), is_active=True,
-        )
-        db.add(user)
-        db.flush()
-        if role_name in rmap:
-            ur = UserRole(user_id=user.id, role_id=rmap[role_name].id)
-            db.add(ur)
-        print(f"    Created user: {username}")
-    db.commit()
+    with SessionLocal() as db:
+        print("Seeding database...")
 
-    print("[4/5] Creating forms...")
-    forms_cfg = [
-        {
-            "code": "MPAI", "name": "Research Data Entry",
-            "description": "Record research experiment data",
-            "prefix": "REQ-MPAI",
-            "fields": [
-                {"name": "project_title", "label": "Project Title", "type": "text", "required": True, "order": 1},
-                {"name": "principal_investigator", "label": "Principal Investigator", "type": "text", "required": True, "order": 2},
-                {"name": "experiment_date", "label": "Experiment Date", "type": "date", "required": True, "order": 3},
-                {"name": "sample_count", "label": "Sample Count", "type": "number", "required": True, "order": 4, "validation": {"min": 1}},
-                {"name": "methodology", "label": "Methodology", "type": "select", "required": True, "order": 5,
-                 "options": ["Standard Protocol", "High Throughput", "Manual Analysis", "Automated Assay"]},
-                {"name": "observations", "label": "Observations", "type": "textarea", "required": False, "order": 6},
-                {"name": "quality_rating", "label": "Data Quality Rating", "type": "rating", "required": True, "order": 7},
-            ],
-        },
-    ]
-
-    fmap = {}
-    for fc in forms_cfg:
-        form = Form(form_code=fc["code"], name=fc["name"], description=fc["description"],
-                     is_active=True, requires_approval=True, approval_levels=1, print_scale=0.94)
-        db.add(form)
-        db.flush()
-        for field in fc["fields"]:
-            fd = FormFieldDefinition(
-                form_id=form.id, field_name=field["name"], field_label=field["label"],
-                field_type=field["type"], is_required=field["required"],
-                validation_rules=field.get("validation"), display_order=field["order"],
-                options=field.get("options"),
+        print("[1/5] Ensuring permissions...")
+        permissions: dict[str, Permission] = {}
+        for code, description, resource, action in permissions_cfg:
+            permissions[code] = get_or_create_permission(
+                db,
+                code=code,
+                description=description,
+                resource=resource,
+                action=action,
             )
-            db.add(fd)
-        rn = RequestNumbering(form_id=form.id, prefix=fc["prefix"], year_reset=True,
-                               current_sequence=0, current_year=0)
-        db.add(rn)
-        fmap[fc["code"]] = form
-        print(f"    Created form: {fc['code']} - {fc['name']}")
-    db.commit()
+        db.commit()
+        print(f"    Permissions ready: {len(permissions)}")
 
-    print("[5/5] Assigning forms to researchers...")
-    researchers = db.query(User).join(UserRole, User.id == UserRole.user_id).join(Role).filter(Role.name == "Research User").all()
-    for form_code, form in fmap.items():
-        for user in researchers:
-            fa = FormAssignment(form_id=form.id, user_id=user.id)
-            db.add(fa)
-            print(f"    Assigned {form_code} to {user.username}")
-    db.commit()
+        print("[2/5] Ensuring roles...")
+        roles: dict[str, Role] = {}
+        for role_name, permission_codes in role_cfg.items():
+            roles[role_name] = get_or_create_role(
+                db,
+                name=role_name,
+                description=f"{role_name} role",
+            )
+            db.flush()
+            ensure_role_permissions(db, roles[role_name], permission_codes, permissions)
+        db.commit()
+        print(f"    Roles ready: {len(roles)}")
 
-print("\nSeed complete!")
-print("\nDefault credentials (password: password123):")
-print("  admin / password123 (Administrator)")
-print("  approver1 / password123 (Approver)")
-print("  reviewer1 / password123 (Reviewer)")
-print("  researcher1 / password123 (Research User)")
-print("  researcher2 / password123 (Research User)")
+        print("[3/5] Ensuring users...")
+        users: dict[str, User] = {}
+        for username, email, full_name, role_name in users_cfg:
+            users[username] = get_or_create_user(
+                db,
+                username=username,
+                email=email,
+                full_name=full_name,
+                password="password123",
+                role=roles[role_name],
+            )
+            print(f"    User ready: {username}")
+        db.commit()
+
+        print("[4/5] Ensuring forms...")
+        mpai_form = get_or_create_form(
+            db,
+            form_code="MPAI",
+            name="MPAI",
+            description="Method precision calculation sheet with laboratory worksheet layout",
+            print_scale=0.94,
+        )
+        ensure_request_numbering(db, form=mpai_form, prefix="REQ-MPAI")
+        db.commit()
+        print("    Form ready: MPAI")
+
+        print("[5/5] Ensuring workflow assignments...")
+        for username in ("researcher1", "researcher2"):
+            ensure_form_assignment(db, form_id=mpai_form.id, user_id=users[username].id, role=SUBMITTER_ROLE)
+        ensure_form_assignment(db, form_id=mpai_form.id, user_id=users["reviewer1"].id, role=REVIEWER_ROLE)
+        ensure_form_assignment(db, form_id=mpai_form.id, user_id=users["approver1"].id, role=APPROVER_ROLE)
+        db.commit()
+        print("    Workflow access ready for submitter, reviewer, and approver roles")
+
+    print("\nSeed complete.")
+    print("\nDefault credentials (password: password123):")
+    print("  admin / password123 (Administrator)")
+    print("  approver1 / password123 (Approver)")
+    print("  reviewer1 / password123 (Reviewer)")
+    print("  researcher1 / password123 (Research User)")
+    print("  researcher2 / password123 (Research User)")
+
+
+if __name__ == "__main__":
+    main()
