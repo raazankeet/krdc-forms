@@ -17,11 +17,16 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "https://krdc-forms.vercel.app",
+    ]
 
     # Cookie settings (httpOnly JWT)
-    COOKIE_SECURE: bool = False  # Set True in production (HTTPS only)
-    COOKIE_SAMESITE: str = "lax"  # lax | strict | none
+    COOKIE_SECURE: bool = True  # Required for HTTPS (Render/Vercel)
+    COOKIE_SAMESITE: str = "none"  # none = allow cross-origin cookies (requires Secure)
     COOKIE_DOMAIN: str = ""  # Empty = current domain only
 
     # Password policy
