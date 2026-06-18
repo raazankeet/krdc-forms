@@ -22,6 +22,7 @@ class CommentType(str, enum.Enum):
 
 class WorkflowActionType(str, enum.Enum):
     SUBMIT = "submit"
+    START_REVIEW = "start_review"
     APPROVE = "approve"
     REJECT = "reject"
     REQUEST_CHANGES = "request_changes"

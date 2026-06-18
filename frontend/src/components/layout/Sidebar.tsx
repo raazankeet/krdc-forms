@@ -14,6 +14,7 @@ const DRAWER_WIDTH = 240;
 const MINI_DRAWER_WIDTH = 56;
 
 interface NavItem {
+  id?: string;
   label: string;
   path: string;
   icon: React.ReactElement;
@@ -23,10 +24,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: <Dashboard /> },
-  { label: 'My Forms', path: '/my-forms', icon: <Description /> },
-  { label: 'My Submissions', path: '/submissions', icon: <Assignment /> },
-  { label: 'Review Queue', path: '/reviews', icon: <RateReview />, roles: ['Reviewer', 'Approver'] },
-  { label: 'My Reviews', path: '/reviews/my', icon: <ManageSearch />, roles: ['Reviewer', 'Approver'] },
+  { label: 'My Forms', path: '/my-forms', icon: <Description />, roles: ['Research User'] },
+  { label: 'My Submissions', path: '/submissions', icon: <Assignment />, roles: ['Research User'] },
+  { id: 'review-queue', label: 'Review Queue', path: '/reviews', icon: <RateReview />, roles: ['Reviewer', 'Approver'] },
+  { id: 'review-records', label: 'My Reviews', path: '/reviews/my', icon: <ManageSearch />, roles: ['Reviewer', 'Approver'] },
   { label: 'Requests', path: '/requests', icon: <ManageSearch />, roles: ['Administrator'] },
   { label: 'User Management', path: '/admin/users', icon: <People />, roles: ['Administrator'] },
   { label: 'Form Management', path: '/admin/forms', icon: <DynamicForm />, roles: ['Administrator'] },
@@ -45,6 +46,20 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
   const userRoleNames = user?.roles.map((r) => r.name) || [];
   const userPermissions = user?.roles.flatMap((r) => r.permissions.map((p) => p.code)) || [];
+  const isApproverOnly = userRoleNames.includes('Approver') && !userRoleNames.includes('Reviewer');
+
+  const resolveLabel = (item: NavItem) => {
+    if (!isApproverOnly) {
+      return item.label;
+    }
+    if (item.id === 'review-queue') {
+      return 'Approval Queue';
+    }
+    if (item.id === 'review-records') {
+      return 'Approval Records';
+    }
+    return item.label;
+  };
 
   const canView = (item: NavItem) => {
     if (!item.roles && !item.permissions) return true;
@@ -111,13 +126,13 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
               >
                 {item.icon}
               </ListItemIcon>
-              {open && <ListItemText primary={item.label} slotProps={{ primary: { variant: 'body2', sx: { fontWeight: isActive ? 600 : 400 } } }} />}
+              {open && <ListItemText primary={resolveLabel(item)} slotProps={{ primary: { variant: 'body2', sx: { fontWeight: isActive ? 600 : 400 } } }} />}
             </ListItemButton>
           );
 
           if (!open) {
             return (
-              <Tooltip key={item.path} title={item.label} placement="right">
+              <Tooltip key={item.path} title={resolveLabel(item)} placement="right">
                 {button}
               </Tooltip>
             );

@@ -249,6 +249,159 @@ function formatMean(values: Array<unknown>): string {
   return mean.toFixed(3);
 }
 
+function getStandardInjectionMeanValue(rows: StandardInjectionRow[]): number | null {
+  const numericValues = rows
+    .map((row) => parseNumeric(row.area_count))
+    .filter((value): value is number => value !== null);
+
+  if (numericValues.length === 0) {
+    return null;
+  }
+
+  return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+}
+
+function formatCalculatedValue(value: number | null, decimals: number) {
+  if (value === null || !Number.isFinite(value)) {
+    return '';
+  }
+
+  return value.toFixed(Math.max(0, decimals));
+}
+
+function calculateMean(values: Array<number | null>): number | null {
+  const numericValues = values.filter((value): value is number => value !== null && Number.isFinite(value));
+
+  if (numericValues.length === 0) {
+    return null;
+  }
+
+  return numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+}
+
+function calculateSampleStandardDeviation(values: Array<number | null>): number | null {
+  const numericValues = values.filter((value): value is number => value !== null && Number.isFinite(value));
+
+  if (numericValues.length === 0) {
+    return null;
+  }
+
+  if (numericValues.length === 1) {
+    return 0;
+  }
+
+  const mean = numericValues.reduce((sum, value) => sum + value, 0) / numericValues.length;
+  const variance = numericValues.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / (numericValues.length - 1);
+
+  return Math.sqrt(variance);
+}
+
+function calculateRelativeStandardDeviation(mean: number | null, standardDeviation: number | null): number | null {
+  if (mean === null || standardDeviation === null || mean === 0) {
+    return null;
+  }
+
+  return (standardDeviation / mean) * 100;
+}
+
+function calculateHorwitzRsdr(meanAiPercent: number | null): number | null {
+  if (meanAiPercent === null || meanAiPercent <= 0) {
+    return null;
+  }
+
+  return 0.67 * (2 ** (1 - (0.5 * Math.log10(meanAiPercent))));
+}
+
+function calculateHorwitzValue(rsd: number | null, rsdr: number | null): number | null {
+  if (rsd === null || rsdr === null || rsdr === 0) {
+    return null;
+  }
+
+  return rsd / rsdr;
+}
+
+function calculateSampleConcentration(row: SampleRow, data: FormData): number | null {
+  const sampleWeight = parseNumeric(row.weight_mg);
+  const sampleDilutionMakeUp = parseNumeric(data.sample_dilution_make_up_ml);
+  const sampleDilution2Aliquot = parseNumeric(data.sample_dilution_2_aliquot_ml);
+  const sampleDilution2MakeUp = parseNumeric(data.sample_dilution_2_make_up_ml);
+  const samplePotency = parseNumeric(data.sample_potency);
+
+  const requiredValues = [
+    sampleWeight,
+    sampleDilutionMakeUp,
+    sampleDilution2Aliquot,
+    sampleDilution2MakeUp,
+    samplePotency,
+  ];
+
+  if (requiredValues.some((value) => value === null || value === 0)) {
+    return null;
+  }
+
+  return (
+    (sampleWeight / sampleDilutionMakeUp)
+    * (sampleDilution2Aliquot / sampleDilution2MakeUp)
+    * (samplePotency / 100)
+    * 1000
+  );
+}
+
+function calculateAiPercent(
+  row: SampleRow,
+  data: FormData,
+  standardInjectionMean: number | null,
+): number | null {
+  const averageArea = parseNumeric(formatAverageValue(row.injection_1, row.injection_2));
+  const standardDilution1Weight = parseNumeric(data.standard_dilution_1_weight_mg);
+  const standardDilution1MakeUp = parseNumeric(data.standard_dilution_1_make_up_ml);
+  const standardDilution2Aliquot = parseNumeric(data.standard_dilution_2_aliquot_ml);
+  const standardDilution2MakeUp = parseNumeric(data.standard_dilution_2_make_up_ml);
+  const standardDilution3Aliquot = parseNumeric(data.standard_dilution_3_aliquot_ml);
+  const standardDilution3MakeUp = parseNumeric(data.standard_dilution_3_make_up_ml);
+  const sampleMakeUp = parseNumeric(data.sample_dilution_make_up_ml);
+  const sampleWeight = parseNumeric(row.weight_mg);
+  const sampleDilution2Aliquot = parseNumeric(data.sample_dilution_2_aliquot_ml);
+  const sampleDilution2MakeUp = parseNumeric(data.sample_dilution_2_make_up_ml);
+  const sampleDilution3Aliquot = parseNumeric(data.sample_dilution_3_aliquot_ml);
+  const sampleDilution3MakeUp = parseNumeric(data.sample_dilution_3_make_up_ml);
+  const standardPotency = parseNumeric(data.standard_potency);
+
+  const requiredValues = [
+    averageArea,
+    standardInjectionMean,
+    standardDilution1Weight,
+    standardDilution1MakeUp,
+    standardDilution2Aliquot,
+    standardDilution2MakeUp,
+    standardDilution3Aliquot,
+    standardDilution3MakeUp,
+    sampleMakeUp,
+    sampleWeight,
+    sampleDilution2Aliquot,
+    sampleDilution2MakeUp,
+    sampleDilution3Aliquot,
+    sampleDilution3MakeUp,
+    standardPotency,
+  ];
+
+  if (requiredValues.some((value) => value === null || value === 0)) {
+    return null;
+  }
+
+  return (
+    (averageArea / standardInjectionMean)
+    * (standardDilution1Weight / standardDilution1MakeUp)
+    * (standardDilution2Aliquot / standardDilution2MakeUp)
+    * (standardDilution3Aliquot / standardDilution3MakeUp)
+    * (sampleMakeUp / sampleWeight)
+    * (sampleDilution2MakeUp / sampleDilution2Aliquot)
+    * (sampleDilution3MakeUp / sampleDilution3Aliquot)
+    * (standardPotency / 100)
+    * 100
+  );
+}
+
 function isNumericInput(value: string) {
   return /^-?\d*(\.\d*)?$/.test(value);
 }
@@ -497,7 +650,32 @@ function MPAISheet({
   const standardInjections = getStandardInjections(data);
   const samples = getSamples(data);
   const isEdit = mode === 'edit';
-  const standardInjectionMean = formatMean(standardInjections.map((row) => row.area_count));
+  const standardInjectionMeanValue = getStandardInjectionMeanValue(standardInjections);
+  const standardInjectionMean = formatCalculatedValue(standardInjectionMeanValue, 3);
+  const reportingDecimals = Math.max(0, Math.trunc(parseNumeric(data.reporting_decimals) ?? 3));
+  const aiFormulaDisplay = '(Average area counts / Standard mean) × (Std-1 mg / Std-1 ml) × (Std-2 aliquot / Std-2 ml) × (Std-3 aliquot / Std-3 ml) × (Sample ml / Sample wt) × (Sample-2 ml / Sample-2 aliquot) × (Sample-3 ml / Sample-3 aliquot) × (Standard potency / 100) × 100';
+  const aiValues = samples.map((sample) => calculateAiPercent(sample, data, standardInjectionMeanValue));
+  const concentrationValues = samples.map((sample) => calculateSampleConcentration(sample, data));
+  const summaryMeanValue = calculateMean(aiValues);
+  const summarySdValue = calculateSampleStandardDeviation(aiValues);
+  const summaryRsdValue = calculateRelativeStandardDeviation(summaryMeanValue, summarySdValue);
+  const summaryHorwitzRsdrValue = calculateHorwitzRsdr(summaryMeanValue);
+  const summaryHorwitzValueValue = calculateHorwitzValue(summaryRsdValue, summaryHorwitzRsdrValue);
+  const concentrationMeanValue = calculateMean(concentrationValues);
+  const concentrationSdValue = calculateSampleStandardDeviation(concentrationValues);
+  const concentrationRsdValue = calculateRelativeStandardDeviation(concentrationMeanValue, concentrationSdValue);
+  const concentrationHorwitzRsdrValue = calculateHorwitzRsdr(concentrationMeanValue);
+  const concentrationHorwitzValueValue = calculateHorwitzValue(concentrationRsdValue, concentrationHorwitzRsdrValue);
+  const summaryMean = formatCalculatedValue(summaryMeanValue, reportingDecimals);
+  const summarySd = formatCalculatedValue(summarySdValue, reportingDecimals);
+  const summaryRsd = formatCalculatedValue(summaryRsdValue, reportingDecimals);
+  const summaryHorwitzRsdr = formatCalculatedValue(summaryHorwitzRsdrValue, reportingDecimals);
+  const summaryHorwitzValue = formatCalculatedValue(summaryHorwitzValueValue, reportingDecimals);
+  const concentrationMean = formatCalculatedValue(concentrationMeanValue, reportingDecimals);
+  const concentrationSd = formatCalculatedValue(concentrationSdValue, reportingDecimals);
+  const concentrationRsd = formatCalculatedValue(concentrationRsdValue, reportingDecimals);
+  const concentrationHorwitzRsdr = formatCalculatedValue(concentrationHorwitzRsdrValue, reportingDecimals);
+  const concentrationHorwitzValue = formatCalculatedValue(concentrationHorwitzValueValue, reportingDecimals);
   const sampleFieldErrors = useMemo(
     () => samples.map((_, index) => ({
       weight_mg: getError?.(`samples.${index}.weight_mg`),
@@ -745,6 +923,8 @@ function MPAISheet({
                   key={sample.name || index}
                   index={index}
                   row={sample}
+                  aiPercent={formatCalculatedValue(aiValues[index], reportingDecimals)}
+                  concentration={formatCalculatedValue(calculateSampleConcentration(sample, data), reportingDecimals)}
                   isEdit={isEdit}
                   errors={sampleFieldErrors[index]}
                   onChange={onSampleChange}
@@ -753,33 +933,54 @@ function MPAISheet({
               ))}
               <SpanCell columns={4}><Cell /></SpanCell>
               <HeaderCell>Mean</HeaderCell>
-              {renderField('summary_mean', { align: 'center', fill: false })}
-              <Cell fill={false} />
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!summaryMean}>{summaryMean}</ValueText>
+              </Cell>
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!concentrationMean}>{concentrationMean}</ValueText>
+              </Cell>
               <SpanCell columns={4}><Cell /></SpanCell>
               <HeaderCell>SD</HeaderCell>
-              {renderField('summary_sd', { align: 'center', fill: false })}
-              <Cell fill={false} />
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!summarySd}>{summarySd}</ValueText>
+              </Cell>
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!concentrationSd}>{concentrationSd}</ValueText>
+              </Cell>
               <SpanCell columns={4}><Cell /></SpanCell>
               <HeaderCell>%RSD</HeaderCell>
-              {renderField('summary_rsd', { align: 'center', fill: false })}
-              <Cell fill={false} />
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!summaryRsd}>{summaryRsd}</ValueText>
+              </Cell>
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!concentrationRsd}>{concentrationRsd}</ValueText>
+              </Cell>
               <SpanCell columns={4}><Cell /></SpanCell>
               <HeaderCell>Horwitz equation(%RSDr)</HeaderCell>
-              {renderField('summary_horwitz_rsdr', { align: 'center', fill: false })}
-              <Cell fill={false} />
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!summaryHorwitzRsdr}>{summaryHorwitzRsdr}</ValueText>
+              </Cell>
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!concentrationHorwitzRsdr}>{concentrationHorwitzRsdr}</ValueText>
+              </Cell>
               <SpanCell columns={4}><Cell /></SpanCell>
               <HeaderCell>Horwitz Value(Hr)</HeaderCell>
-              {renderField('summary_horwitz_value', { align: 'center', fill: false })}
-              <Cell fill={false} />
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!summaryHorwitzValue}>{summaryHorwitzValue}</ValueText>
+              </Cell>
+              <Cell fill={false} align="center">
+                <ValueText align="center" muted={!concentrationHorwitzValue}>{concentrationHorwitzValue}</ValueText>
+              </Cell>
             </TableBox>
           </Box>
 
           <TableBox columns="170px 810px" rows={1} sx={{ mb: 4, width: SHEET_WIDTH }}>
             <LabelCell align="center">AI (% w/w) =</LabelCell>
-            {renderField('ai_formula_display', {
-              fill: false,
-              placeholder: 'Formula placeholder - to be configured',
-            })}
+            <Cell fill={false} align="left">
+              <ValueText align="left" muted={!aiFormulaDisplay}>
+                {aiFormulaDisplay}
+              </ValueText>
+            </Cell>
           </TableBox>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: '478px 478px', gap: `${SECTION_GAP}px`, width: SHEET_WIDTH }}>
@@ -848,6 +1049,8 @@ const StandardInjectionRowCells = memo(function StandardInjectionRowCells({
 const SampleRowCells = memo(function SampleRowCells({
   index,
   row,
+  aiPercent,
+  concentration,
   isEdit,
   errors,
   onChange,
@@ -855,6 +1058,8 @@ const SampleRowCells = memo(function SampleRowCells({
 }: {
   index: number;
   row: SampleRow;
+  aiPercent: string;
+  concentration: string;
   isEdit: boolean;
   errors?: {
     weight_mg?: string;
@@ -920,10 +1125,10 @@ const SampleRowCells = memo(function SampleRowCells({
         <ValueText align="center" muted={!averageArea}>{averageArea}</ValueText>
       </Cell>
       <Cell fill={false} align="center">
-        <ValueText align="center" muted={!row.ai_percent}>{row.ai_percent}</ValueText>
+        <ValueText align="center" muted={!aiPercent}>{aiPercent}</ValueText>
       </Cell>
       <Cell fill={false} align="center">
-        <ValueText align="center" muted={!row.concentration_mg_l}>{row.concentration_mg_l}</ValueText>
+        <ValueText align="center" muted={!concentration}>{concentration}</ValueText>
       </Cell>
     </Fragment>
   );

@@ -18,12 +18,32 @@ from app.services.workflow import validate_transition
 from app.services.audit import log_event
 from app.services.form_validation import validate_submission_payload
 from app.services.numbering import generate_request_number, is_draft_request_number
+from app.services.form_assignments import APPROVER_ROLE, REVIEWER_ROLE, SUBMITTER_ROLE, has_assignment_role
 
 router = APIRouter()
 
 
 class WorkflowBody(BaseModel):
     comment: Optional[str] = None
+
+
+def _role_names(user: User) -> set[str]:
+    return {user_role.role.name for user_role in user.user_roles}
+
+
+def _is_admin_only_user(user: User) -> bool:
+    role_names = _role_names(user)
+    return "Administrator" in role_names and not ({"Reviewer", "Approver", "Research User"} & role_names)
+
+
+def _ensure_not_admin_operator(current_user: User) -> None:
+    if _is_admin_only_user(current_user):
+        raise WorkflowException("Administrators can manage access, but they cannot submit, review, or approve requests")
+
+
+def _ensure_form_assignment(db: Session, *, submission: Submission, user: User, role: str, error_message: str) -> None:
+    if not has_assignment_role(db, form_id=submission.form_id, user_id=user.id, role=role):
+        raise WorkflowException(error_message)
 
 
 def _has_meaningful_version_data(version: SubmissionVersion | None) -> bool:
@@ -88,8 +108,16 @@ async def submit_submission(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
         raise NotFoundException("Submission not found")
+    _ensure_not_admin_operator(current_user)
     if submission.user_id != current_user.id:
         raise WorkflowException("Only the owner can submit this submission")
+    _ensure_form_assignment(
+        db,
+        submission=submission,
+        user=current_user,
+        role=SUBMITTER_ROLE,
+        error_message="You are not assigned as a submitter for this form",
+    )
     _validate_submission_before_send(db, submission)
     _assign_official_request_number_if_needed(db, submission)
 
@@ -126,31 +154,57 @@ async def start_review(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
         raise NotFoundException("Submission not found")
+    _ensure_not_admin_operator(current_user)
 
-    is_review_user = any(ur.role.name in ["Administrator", "Reviewer", "Approver"] for ur in current_user.user_roles)
-    if not is_review_user:
-        raise WorkflowException("Only reviewers can start review")
-    if submission.status == SubmissionStatus.UNDER_REVIEW and submission.current_assignee and submission.current_assignee != current_user.id:
-        raise WorkflowException("This submission is already being reviewed by another user")
+    role_names = _role_names(current_user)
+    is_reviewer = "Reviewer" in role_names
+    is_approver = "Approver" in role_names
+
+    if submission.status == SubmissionStatus.SUBMITTED:
+        if not is_reviewer:
+            raise WorkflowException("Only assigned reviewers can start this review stage")
+        _ensure_form_assignment(
+            db,
+            submission=submission,
+            user=current_user,
+            role=REVIEWER_ROLE,
+            error_message="You are not assigned as a reviewer for this form",
+        )
+    elif submission.status == SubmissionStatus.UNDER_REVIEW:
+        if not is_approver:
+            raise WorkflowException("Only assigned approvers can start the approval stage")
+        _ensure_form_assignment(
+            db,
+            submission=submission,
+            user=current_user,
+            role=APPROVER_ROLE,
+            error_message="You are not assigned as an approver for this form",
+        )
+    else:
+        raise WorkflowException("This request is not available to start review")
+
+    if submission.current_assignee and submission.current_assignee != current_user.id:
+        raise WorkflowException("This submission is already being handled by another user")
 
     from_status = submission.status
-    new_status = validate_transition(from_status, WorkflowActionType.SUBMIT)
-    submission.status = new_status
     submission.current_assignee = current_user.id
     submission.reviewed_at = datetime.now(timezone.utc)
 
     wf = WorkflowAction(
-        submission_id=submission.id, user_id=current_user.id,
-        action=WorkflowActionType.SUBMIT, comment=body.comment,
+        submission_id=submission.id,
+        user_id=current_user.id,
+        action=WorkflowActionType.START_REVIEW,
+        comment=body.comment,
         from_status=from_status.value if hasattr(from_status, 'value') else str(from_status),
-        to_status=new_status.value if hasattr(new_status, 'value') else str(new_status),
+        to_status=from_status.value if hasattr(from_status, 'value') else str(from_status),
     )
     db.add(wf)
+
     db.commit()
 
     await log_event(db=db, user=current_user, action="submission.review_started", entity_type="submission",
                     entity_id=str(submission.id), request=request)
-    return {"success": True, "data": {"status": new_status.value if hasattr(new_status, 'value') else str(new_status)}}
+    return {"success": True, "data": {"status": from_status.value if hasattr(from_status, 'value') else str(from_status)}}
 
 
 @router.post("/submissions/{submission_id}/workflow/approve", response_model=dict)
@@ -165,21 +219,51 @@ async def approve_submission(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission: raise NotFoundException("Submission not found")
 
-    is_review_user = any(ur.role.name in ["Administrator", "Reviewer", "Approver"] for ur in current_user.user_roles)
-    if not is_review_user: raise WorkflowException("Only reviewers can approve")
+    _ensure_not_admin_operator(current_user)
+    role_names = _role_names(current_user)
+    is_reviewer = "Reviewer" in role_names
+    is_approver = "Approver" in role_names
+    if not is_reviewer and not is_approver:
+        raise WorkflowException("Only reviewers and approvers can complete approval actions")
     if submission.current_assignee and submission.current_assignee != current_user.id:
-        raise WorkflowException("Only the assigned reviewer can approve this submission")
+        raise WorkflowException("Only the assigned user can complete this action")
     if not submission.current_assignee:
-        raise WorkflowException("Start review before approving this submission")
+        raise WorkflowException("Start review before completing this action")
 
     from_status = submission.status
-    new_status = validate_transition(from_status, WorkflowActionType.APPROVE)
-    submission.status = new_status
-    submission.approved_at = datetime.now(timezone.utc)
-    submission.current_assignee = None
+    if from_status == SubmissionStatus.SUBMITTED:
+        if not is_reviewer:
+            raise WorkflowException("Only the assigned reviewer can complete the review stage")
+        _ensure_form_assignment(
+            db,
+            submission=submission,
+            user=current_user,
+            role=REVIEWER_ROLE,
+            error_message="You are not assigned as a reviewer for this form",
+        )
+        new_status = validate_transition(from_status, WorkflowActionType.APPROVE)
+        submission.status = new_status
+        submission.current_assignee = None
+        submission.reviewed_at = datetime.now(timezone.utc)
+    elif from_status == SubmissionStatus.UNDER_REVIEW:
+        if not is_approver:
+            raise WorkflowException("Only the assigned approver can approve this request")
+        _ensure_form_assignment(
+            db,
+            submission=submission,
+            user=current_user,
+            role=APPROVER_ROLE,
+            error_message="You are not assigned as an approver for this form",
+        )
+        new_status = validate_transition(from_status, WorkflowActionType.APPROVE)
+        submission.status = new_status
+        submission.approved_at = datetime.now(timezone.utc)
+        submission.current_assignee = None
+    else:
+        raise WorkflowException("This request is not ready for approval")
 
     # Create approved snapshot
-    if submission.versions:
+    if new_status == SubmissionStatus.APPROVED and submission.versions:
         ranked_versions = sorted(
             submission.versions,
             key=lambda version: (
@@ -228,12 +312,23 @@ async def reject_submission(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission: raise NotFoundException("Submission not found")
 
-    is_review_user = any(ur.role.name in ["Administrator", "Reviewer", "Approver"] for ur in current_user.user_roles)
-    if not is_review_user: raise WorkflowException("Only reviewers can reject")
+    _ensure_not_admin_operator(current_user)
+    role_names = _role_names(current_user)
+    if "Approver" not in role_names:
+        raise WorkflowException("Only assigned approvers can reject a request")
     if submission.current_assignee and submission.current_assignee != current_user.id:
-        raise WorkflowException("Only the assigned reviewer can reject this submission")
+        raise WorkflowException("Only the assigned approver can reject this submission")
     if not submission.current_assignee:
         raise WorkflowException("Start review before rejecting this submission")
+    if submission.status != SubmissionStatus.UNDER_REVIEW:
+        raise WorkflowException("Rejection is available only during the approval stage")
+    _ensure_form_assignment(
+        db,
+        submission=submission,
+        user=current_user,
+        role=APPROVER_ROLE,
+        error_message="You are not assigned as an approver for this form",
+    )
 
     from_status = submission.status
     validate_transition(from_status, WorkflowActionType.REJECT)
@@ -277,12 +372,38 @@ async def request_changes(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission: raise NotFoundException("Submission not found")
 
-    is_review_user = any(ur.role.name in ["Administrator", "Reviewer", "Approver"] for ur in current_user.user_roles)
-    if not is_review_user: raise WorkflowException("Only reviewers can request changes")
+    _ensure_not_admin_operator(current_user)
+    role_names = _role_names(current_user)
+    is_reviewer = "Reviewer" in role_names
+    is_approver = "Approver" in role_names
+    if not is_reviewer and not is_approver:
+        raise WorkflowException("Only reviewers and approvers can request changes")
     if submission.current_assignee and submission.current_assignee != current_user.id:
-        raise WorkflowException("Only the assigned reviewer can request changes on this submission")
+        raise WorkflowException("Only the assigned user can request changes on this submission")
     if not submission.current_assignee:
         raise WorkflowException("Start review before requesting changes")
+    if submission.status == SubmissionStatus.SUBMITTED:
+        if not is_reviewer:
+            raise WorkflowException("Only the assigned reviewer can request changes at this stage")
+        _ensure_form_assignment(
+            db,
+            submission=submission,
+            user=current_user,
+            role=REVIEWER_ROLE,
+            error_message="You are not assigned as a reviewer for this form",
+        )
+    elif submission.status == SubmissionStatus.UNDER_REVIEW:
+        if not is_approver:
+            raise WorkflowException("Only the assigned approver can request changes at this stage")
+        _ensure_form_assignment(
+            db,
+            submission=submission,
+            user=current_user,
+            role=APPROVER_ROLE,
+            error_message="You are not assigned as an approver for this form",
+        )
+    else:
+        raise WorkflowException("This request is not in a review stage that supports requested changes")
 
     from_status = submission.status
     new_status = validate_transition(from_status, WorkflowActionType.REQUEST_CHANGES)
@@ -320,7 +441,15 @@ async def resubmit_submission(
     """Resubmit after corrections."""
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission: raise NotFoundException("Submission not found")
+    _ensure_not_admin_operator(current_user)
     if submission.user_id != current_user.id: raise WorkflowException("Only the owner can resubmit")
+    _ensure_form_assignment(
+        db,
+        submission=submission,
+        user=current_user,
+        role=SUBMITTER_ROLE,
+        error_message="You are not assigned as a submitter for this form",
+    )
     _validate_submission_before_send(db, submission)
     _assign_official_request_number_if_needed(db, submission)
 

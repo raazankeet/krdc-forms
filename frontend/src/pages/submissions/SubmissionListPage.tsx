@@ -6,7 +6,7 @@ import {
 import {
   Add, Visibility, Edit, Print, Refresh, Delete,
 } from '@mui/icons-material';
-import { formatDistanceToNow } from 'date-fns';
+ 
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { apiService } from '../../services/api';
 import PageHeader from '../../components/common/PageHeader';
@@ -16,11 +16,13 @@ import LoadingSkeleton from '../../components/common/LoadingSkeleton';
 import EmptyState from '../../components/common/EmptyState';
 import RequestLifecycleGuide from '../../components/common/RequestLifecycleGuide';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import { formatLocalDateTime, formatRelativeDateTime } from '../../utils/dateTime';
+import { getDerivedSubmissionLabel } from '../../utils/requestLifecycle';
 import type { Submission, PaginatedResponse } from '../../types';
 
 const PAGE_SIZE = 10;
 
-function getStatusSummary(status: Submission['status']) {
+function getStatusSummary(status: Submission['status'], hasAssignee: boolean) {
   switch (status) {
     case 'draft':
       return {
@@ -29,17 +31,29 @@ function getStatusSummary(status: Submission['status']) {
         nextAction: 'Complete the form and submit it for review.',
       };
     case 'submitted':
-      return {
-        stage: 'Queued For Review',
-        detail: 'The request has been submitted and is waiting for a reviewer or approver to pick it up.',
-        nextAction: 'No action needed now. Wait for the review team to start review.',
-      };
+      return hasAssignee
+        ? {
+          stage: 'Under Review',
+          detail: 'The reviewer has started working on this request and the review stage is currently in progress.',
+          nextAction: 'No action is needed now. Wait for the reviewer to complete the review stage.',
+        }
+        : {
+          stage: 'Queued For Reviewer',
+          detail: 'The request has been submitted and is waiting for the assigned reviewer to start the first review stage.',
+          nextAction: 'No action needed now. Wait for the reviewer to complete the review stage.',
+        };
     case 'under_review':
-      return {
-        stage: 'Active Review',
-        detail: 'A reviewer is currently working on this request. The next outcome will be approval or a return for correction.',
-        nextAction: 'Monitor comments and history. Editing is locked during active review.',
-      };
+      return hasAssignee
+        ? {
+          stage: 'Approval In Progress',
+          detail: 'The approver has started working on this request and the final approval stage is in progress.',
+          nextAction: 'Monitor comments and history. Editing stays locked while approval is in progress.',
+        }
+        : {
+          stage: 'Queued For Approver',
+          detail: 'The reviewer stage is complete. The request is now with the approver for the final decision.',
+          nextAction: 'Monitor comments and history. Editing stays locked while approval is in progress.',
+        };
     case 'needs_correction':
     case 'rejected':
       return {
@@ -147,8 +161,11 @@ export default function SubmissionListPage() {
       accessorKey: 'status',
       header: 'Status',
       size: 160,
-      Cell: ({ cell }) => (
-        <StatusChip status={cell.getValue<Submission['status']>()} />
+      Cell: ({ cell, row }) => (
+        <StatusChip
+          status={cell.getValue<Submission['status']>()}
+          labelOverride={getDerivedSubmissionLabel(cell.getValue<Submission['status']>(), !!row.original.current_assignee)}
+        />
       ),
     },
     {
@@ -163,9 +180,9 @@ export default function SubmissionListPage() {
       header: 'Updated',
       size: 160,
       Cell: ({ cell }) => (
-        <Tooltip title={new Date(cell.getValue<string>()).toLocaleString()}>
+        <Tooltip title={formatLocalDateTime(cell.getValue<string>())}>
           <Typography variant="body2" color="text.secondary">
-            {formatDistanceToNow(new Date(cell.getValue<string>()), { addSuffix: true })}
+            {formatRelativeDateTime(cell.getValue<string>())}
           </Typography>
         </Tooltip>
       ),
@@ -176,7 +193,7 @@ export default function SubmissionListPage() {
     { label: 'All', value: '' },
     { label: 'Draft', value: 'draft' },
     { label: 'Submitted', value: 'submitted' },
-    { label: 'Under Review', value: 'under_review' },
+    { label: 'Under Approval', value: 'under_review' },
     { label: 'Approved', value: 'approved' },
     { label: 'Rejected', value: 'rejected' },
     { label: 'Needs Correction', value: 'needs_correction' },
@@ -231,7 +248,7 @@ export default function SubmissionListPage() {
     ),
     renderDetailPanel: ({ row }) => {
       const submission = row.original;
-      const statusSummary = getStatusSummary(submission.status);
+      const statusSummary = getStatusSummary(submission.status, !!submission.current_assignee);
       const canEdit = submission.status === 'draft'
         || submission.status === 'needs_correction'
         || submission.status === 'rejected';
@@ -258,7 +275,10 @@ export default function SubmissionListPage() {
                 Lifecycle Snapshot
               </Typography>
               <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }} useFlexGap>
-                <StatusChip status={submission.status} />
+                <StatusChip
+                  status={submission.status}
+                  labelOverride={getDerivedSubmissionLabel(submission.status, !!submission.current_assignee)}
+                />
                 <Chip label={statusSummary.stage} size="small" variant="outlined" />
                 <Chip label={`Version ${submission.version_number}`} size="small" variant="outlined" />
               </Stack>
@@ -293,13 +313,13 @@ export default function SubmissionListPage() {
                 <Box>
                   <Typography variant="caption" color="text.secondary">Last Updated</Typography>
                   <Typography variant="body2">
-                    {submission.updated_at ? new Date(submission.updated_at).toLocaleString() : '—'}
+                    {formatLocalDateTime(submission.updated_at)}
                   </Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Submitted</Typography>
                   <Typography variant="body2">
-                    {submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : 'Not submitted yet'}
+                    {submission.submitted_at ? formatLocalDateTime(submission.submitted_at) : 'Not submitted yet'}
                   </Typography>
                 </Box>
               </Stack>
@@ -378,7 +398,7 @@ export default function SubmissionListPage() {
         subtitle={loading ? 'Loading...' : `${total} submission${total !== 1 ? 's' : ''}`}
         breadcrumbs={[{ label: 'My Submissions' }]}
         actions={
-          <Button variant="contained" startIcon={<Add />} onClick={() => navigate('/submissions/new')}>
+          <Button variant="contained" startIcon={<Add />} onClick={() => navigate('/my-forms')}>
             New Submission
           </Button>
         }
@@ -409,7 +429,7 @@ export default function SubmissionListPage() {
           title="No submissions found"
           description={search || statusFilter ? 'Try adjusting your search or filters.' : 'Create your first submission to get started.'}
           actionLabel="New Submission"
-          onAction={() => navigate('/submissions/new')}
+          onAction={() => navigate('/my-forms')}
         />
       )}
 

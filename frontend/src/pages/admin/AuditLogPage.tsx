@@ -5,11 +5,11 @@ import {
 } from '@mui/material';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { Refresh, InfoOutlined } from '@mui/icons-material';
-import { formatDistanceToNow } from 'date-fns';
 import { apiService } from '../../services/api';
 import PageHeader from '../../components/common/PageHeader';
 import LoadingSkeleton from '../../components/common/LoadingSkeleton';
 import EmptyState from '../../components/common/EmptyState';
+import { formatLocalDateTime, formatRelativeDateTime } from '../../utils/dateTime';
 import type { AuditLog, PaginatedResponse } from '../../types';
 
 const PAGE_SIZE = 15;
@@ -65,9 +65,9 @@ export default function AuditLogPage() {
       header: 'Timestamp',
       size: 180,
       Cell: ({ cell }) => (
-        <Tooltip title={new Date(cell.getValue<string>()).toLocaleString()}>
+        <Tooltip title={formatLocalDateTime(cell.getValue<string>())}>
           <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-            {formatDistanceToNow(new Date(cell.getValue<string>()), { addSuffix: true })}
+            {formatRelativeDateTime(cell.getValue<string>())}
           </Typography>
         </Tooltip>
       ),
@@ -188,7 +188,6 @@ export default function AuditLogPage() {
         </Stack>
       </Card>
 
-      {/* Filters */}
       <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
         <TextField size="small" label="Date From" type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 160 }} />
         <TextField size="small" label="Date To" type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 160 }} />

@@ -27,7 +27,7 @@ function RootLayout() {
     <ThemeContextProvider>
       <SnackbarProvider
         maxSnack={3}
-        anchorOrigin={{ horizontal: 'right', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
         autoHideDuration={4000}
       >
         <AuthProvider>

@@ -5,10 +5,16 @@ from datetime import datetime, timezone
 
 from app.db.base import get_db
 from app.models.user import User
-from app.models.submission import Submission, SubmissionStatus
+from app.models.submission import Submission, SubmissionStatus, WorkflowAction, WorkflowActionType
+from app.models.form import FormAssignment
 from app.core.deps import get_current_user
+from app.services.form_assignments import APPROVER_ROLE, REVIEWER_ROLE
 
 router = APIRouter()
+
+
+def _role_names(user: User) -> set[str]:
+    return {user_role.role.name for user_role in user.user_roles}
 
 
 @router.get("/admin/dashboard", response_model=dict)
@@ -70,19 +76,89 @@ async def reviewer_dashboard(
     current_user: User = Depends(get_current_user),
 ):
     """Reviewer dashboard statistics."""
-    is_review_user = any(ur.role.name in ["Administrator", "Reviewer", "Approver"] for ur in current_user.user_roles)
-    if not is_review_user:
+    role_names = _role_names(current_user)
+    is_reviewer = "Reviewer" in role_names
+    is_approver = "Approver" in role_names
+    if not is_reviewer and not is_approver:
         return {"success": True, "data": {}}
 
-    pending = db.query(Submission).filter(
-        Submission.status.in_([SubmissionStatus.SUBMITTED, SubmissionStatus.UNDER_REVIEW])
-    ).count()
+    if is_reviewer:
+        pending = (
+            db.query(Submission)
+            .join(
+                FormAssignment,
+                (FormAssignment.form_id == Submission.form_id)
+                & (FormAssignment.user_id == current_user.id)
+                & (FormAssignment.role == REVIEWER_ROLE)
+            )
+            .filter(
+                Submission.status == SubmissionStatus.SUBMITTED,
+                (Submission.current_assignee.is_(None)) | (Submission.current_assignee == current_user.id),
+            )
+            .distinct()
+            .count()
+        )
+        my_active_reviews = (
+            db.query(Submission)
+            .join(
+                FormAssignment,
+                (FormAssignment.form_id == Submission.form_id)
+                & (FormAssignment.user_id == current_user.id)
+                & (FormAssignment.role == REVIEWER_ROLE)
+            )
+            .filter(
+                Submission.status == SubmissionStatus.SUBMITTED,
+                Submission.current_assignee == current_user.id,
+            )
+            .distinct()
+            .count()
+        )
+    else:
+        pending = (
+            db.query(Submission)
+            .join(
+                FormAssignment,
+                (FormAssignment.form_id == Submission.form_id)
+                & (FormAssignment.user_id == current_user.id)
+                & (FormAssignment.role == APPROVER_ROLE)
+            )
+            .filter(
+                Submission.status == SubmissionStatus.UNDER_REVIEW,
+                (Submission.current_assignee.is_(None)) | (Submission.current_assignee == current_user.id),
+            )
+            .distinct()
+            .count()
+        )
+        my_active_reviews = (
+            db.query(Submission)
+            .join(
+                FormAssignment,
+                (FormAssignment.form_id == Submission.form_id)
+                & (FormAssignment.user_id == current_user.id)
+                & (FormAssignment.role == APPROVER_ROLE)
+            )
+            .filter(
+                Submission.status == SubmissionStatus.UNDER_REVIEW,
+                Submission.current_assignee == current_user.id,
+            )
+            .distinct()
+            .count()
+        )
 
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    reviewed_today = db.query(Submission).filter(
-        Submission.current_assignee == current_user.id,
-        Submission.reviewed_at >= today,
-    ).count()
+    reviewed_today = (
+        db.query(WorkflowAction)
+        .filter(
+            WorkflowAction.user_id == current_user.id,
+            WorkflowAction.created_at >= today,
+            WorkflowAction.action.in_([
+                WorkflowActionType.APPROVE,
+                WorkflowActionType.REQUEST_CHANGES,
+                WorkflowActionType.REJECT,
+            ]),
+        )
+        .count()
+    )
 
     total_decided = db.query(Submission).filter(
         Submission.status.in_([SubmissionStatus.APPROVED, SubmissionStatus.REJECTED])
@@ -93,6 +169,8 @@ async def reviewer_dashboard(
     return {"success": True, "data": {
         "pending_reviews": pending,
         "reviewed_today": reviewed_today,
+        "reviewed_this_week": my_active_reviews,
+        "avg_review_time_hours": 0,
         "rejection_rate_pct": rejection_rate,
     }}
 

@@ -22,7 +22,6 @@ import {
   Edit,
   Delete,
 } from '@mui/icons-material';
-import { formatDistanceToNow } from 'date-fns';
 import { apiService } from '../../services/api';
 import { getFormComponent } from '../../forms/registry';
 import PageHeader from '../../components/common/PageHeader';
@@ -31,6 +30,9 @@ import LoadingSkeleton from '../../components/common/LoadingSkeleton';
 import EmptyState from '../../components/common/EmptyState';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import IssueDialog from '../../components/common/IssueDialog';
+import RequestStageStepper from '../../components/common/RequestStageStepper';
+import { formatLocalDateTimeWithRelative } from '../../utils/dateTime';
+import { getDerivedSubmissionLabel, getWorkflowHistoryView } from '../../utils/requestLifecycle';
 import type { Submission, SubmissionComment, SubmissionVersion, ApiResponse } from '../../types';
 
 interface TabPanelProps {
@@ -99,6 +101,7 @@ export default function SubmissionDetailPage() {
   const formComponent = submission?.form?.form_code ? getFormComponent(submission.form.form_code) : undefined;
   const FormView = formComponent?.FormView;
   const formData = submission?.current_version?.data || {};
+  const hasAssignee = !!submission?.current_assignee;
 
   if (loading) {
     return (
@@ -167,15 +170,17 @@ export default function SubmissionDetailPage() {
         }
       />
 
-      <Card sx={{ p: 3, mb: 3, borderRadius: 3 }}>
-        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, alignItems: { sm: 'center' } }}>
-          <Box sx={{ flex: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <StatusChip status={submission.status} size="medium" />
-              <Typography variant="caption" color="text.secondary">
-                v{submission.version_number}
-              </Typography>
-            </Box>
+      <Card sx={{ p: { xs: 2, sm: 2.25 }, mb: 3, borderRadius: 3 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: { xs: 'flex-start', md: 'center' },
+              flexDirection: { xs: 'column', md: 'row' },
+              gap: 1.25,
+            }}
+          >
             <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, color: 'text.secondary' }}>
               <Typography variant="body2" color="inherit">
                 Submitted by
@@ -192,11 +197,22 @@ export default function SubmissionDetailPage() {
                 {' • '}
               </Typography>
               <Typography variant="body2" color="inherit">
-                {submission.submitted_at
-                  ? formatDistanceToNow(new Date(submission.submitted_at), { addSuffix: true })
-                  : 'Not submitted yet'}
+                {submission.submitted_at ? formatLocalDateTimeWithRelative(submission.submitted_at) : 'Not submitted yet'}
               </Typography>
             </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+              <Typography variant="caption" color="text.secondary">
+                v{submission.version_number}
+              </Typography>
+              <StatusChip
+                status={submission.status}
+                size="medium"
+                labelOverride={getDerivedSubmissionLabel(submission.status, hasAssignee)}
+              />
+            </Box>
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <RequestStageStepper status={submission.status} hasAssignee={hasAssignee} />
           </Box>
         </Box>
       </Card>
@@ -227,58 +243,67 @@ export default function SubmissionDetailPage() {
           <Box sx={{ px: 3, pb: 3 }}>
             {submission.workflow_actions && submission.workflow_actions.length > 0 ? (
               <Stack spacing={2}>
-                {submission.workflow_actions.map((action) => (
-                  <Box
-                    key={action.id}
-                    sx={{
-                      display: 'flex',
-                      gap: 2,
-                      p: 2,
-                      borderRadius: 2,
-                      bgcolor: 'action.hover',
-                      borderLeft: 4,
-                      borderColor:
-                        action.action === 'approve'
-                          ? 'success.main'
-                          : action.action === 'reject'
-                            ? 'error.main'
-                            : action.action === 'request_changes'
-                              ? 'warning.main'
-                              : 'primary.main',
-                    }}
-                  >
-                    <Box sx={{ flex: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                        <Chip
-                          label={action.action.replace('_', ' ')}
-                          size="small"
-                          color={
-                            action.action === 'approve'
-                              ? 'success'
-                              : action.action === 'reject'
-                                ? 'error'
-                                : action.action === 'request_changes'
-                                  ? 'warning'
-                                  : 'primary'
-                          }
-                        />
-                        <Typography variant="caption" color="text.secondary">
-                          {formatDistanceToNow(new Date(action.created_at), { addSuffix: true })}
+                {submission.workflow_actions.map((action) => {
+                  const historyView = getWorkflowHistoryView(action.action, action.from_status, action.to_status);
+
+                  return (
+                    <Box
+                      key={action.id}
+                      sx={{
+                        display: 'flex',
+                        gap: 2,
+                        p: 2,
+                        borderRadius: 2,
+                        bgcolor: 'action.hover',
+                        borderLeft: 4,
+                        borderColor:
+                          action.action === 'approve'
+                            ? 'success.main'
+                            : action.action === 'reject'
+                              ? 'error.main'
+                              : action.action === 'request_changes'
+                                ? 'warning.main'
+                                : 'primary.main',
+                      }}
+                    >
+                      <Box sx={{ flex: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                          <Chip
+                            label={historyView.actionLabel}
+                            size="small"
+                            color={
+                              action.action === 'approve'
+                                ? 'success'
+                                : action.action === 'reject'
+                                  ? 'error'
+                                  : action.action === 'request_changes'
+                                    ? 'warning'
+                                    : 'primary'
+                            }
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            {formatLocalDateTimeWithRelative(action.created_at)}
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          {action.user?.full_name || 'System'} updated this request.
                         </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                          <Chip label={historyView.fromLabel} size="small" variant="outlined" />
+                          <Typography variant="caption" color="text.secondary">
+                            to
+                          </Typography>
+                          <Chip label={historyView.toLabel} size="small" variant="outlined" />
+                        </Stack>
+                        {action.comment && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
+                            {`"${action.comment}"`}
+                          </Typography>
+                        )}
                       </Box>
-                      <Typography variant="body2">
-                        {action.user?.full_name || 'System'} moved from{' '}
-                        <Chip label={action.from_status} size="small" variant="outlined" /> to{' '}
-                        <Chip label={action.to_status} size="small" variant="outlined" />
-                      </Typography>
-                      {action.comment && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
-                          {`"${action.comment}"`}
-                        </Typography>
-                      )}
                     </Box>
-                  </Box>
-                ))}
+                  );
+                })}
               </Stack>
             ) : (
               <EmptyState title="No history" description="No workflow actions have been recorded." />
@@ -309,7 +334,7 @@ export default function SubmissionDetailPage() {
                         {comment.user?.full_name || 'Unknown'}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+                        {formatLocalDateTimeWithRelative(comment.created_at)}
                       </Typography>
                     </Box>
                     <Typography variant="body2">{comment.comment}</Typography>
@@ -337,7 +362,7 @@ export default function SubmissionDetailPage() {
                           )}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {formatDistanceToNow(new Date(version.created_at), { addSuffix: true })}
+                          {formatLocalDateTimeWithRelative(version.created_at)}
                         </Typography>
                       </Box>
                     </Box>

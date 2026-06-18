@@ -12,6 +12,7 @@ import {
   Stack,
   TextField,
   Avatar,
+  Chip,
   CircularProgress,
 } from '@mui/material';
 import {
@@ -23,7 +24,6 @@ import {
   Loop,
   PlayArrow,
 } from '@mui/icons-material';
-import { formatDistanceToNow } from 'date-fns';
 import { useSnackbar } from 'notistack';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -33,6 +33,9 @@ import StatusChip from '../../components/common/StatusChip';
 import LoadingSkeleton from '../../components/common/LoadingSkeleton';
 import EmptyState from '../../components/common/EmptyState';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import RequestStageStepper from '../../components/common/RequestStageStepper';
+import { formatLocalDateTimeWithRelative } from '../../utils/dateTime';
+import { getDerivedSubmissionLabel, getWorkflowHistoryView } from '../../utils/requestLifecycle';
 import type { Submission, SubmissionComment, WorkflowAction, ApiResponse } from '../../types';
 
 function TabPanel({ children, value, index }: { children: React.ReactNode; value: number; index: number }) {
@@ -91,7 +94,9 @@ export default function ReviewDetailPage() {
         action === 'start-review'
           ? 'Review started.'
           : action === 'approve'
-            ? 'Submission approved.'
+            ? submission?.status === 'submitted'
+              ? 'Review completed and forwarded to the approver.'
+              : 'Submission approved.'
             : action === 'reject'
               ? 'Submission sent back to the submitter.'
               : 'Changes requested.',
@@ -140,7 +145,7 @@ export default function ReviewDetailPage() {
 
   const roleNames = user?.roles.map((role) => role.name) || [];
   const isApprover = roleNames.includes('Approver');
-  const isReviewer = roleNames.includes('Reviewer') || isApprover || roleNames.includes('Administrator');
+  const isReviewer = roleNames.includes('Reviewer');
   const assigneeId = typeof submission.current_assignee === 'number'
     ? submission.current_assignee
     : submission.current_assignee?.id;
@@ -148,10 +153,19 @@ export default function ReviewDetailPage() {
     ? 'another reviewer'
     : submission.current_assignee?.full_name;
   const isAssignedToCurrentUser = !!user && assigneeId === user.id;
+  const hasAssignee = !!submission.current_assignee;
 
-  const canStartReview = isReviewer && submission.status === 'submitted';
-  const canRequestChanges = isReviewer && submission.status === 'under_review' && isAssignedToCurrentUser;
-  const canApproveOrReject = isReviewer && submission.status === 'under_review' && isAssignedToCurrentUser;
+  const isReviewerStage = submission.status === 'submitted';
+  const isApproverStage = submission.status === 'under_review';
+  const canStartReview =
+    (isReviewer && isReviewerStage && !submission.current_assignee)
+    || (isApprover && isApproverStage && !submission.current_assignee);
+  const canRequestChanges =
+    ((isReviewer && isReviewerStage) || (isApprover && isApproverStage))
+    && isAssignedToCurrentUser;
+  const canApproveOrReject =
+    ((isReviewer && isReviewerStage) || (isApprover && isApproverStage))
+    && isAssignedToCurrentUser;
   const showActionPanel = canStartReview || canRequestChanges || canApproveOrReject;
   return (
     <Box>
@@ -164,12 +178,17 @@ export default function ReviewDetailPage() {
         ]}
       />
 
-      <Card sx={{ p: 3, mb: 3, borderRadius: 3 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-          <Box sx={{ flex: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <StatusChip status={submission.status} size="medium" />
-            </Box>
+      <Card sx={{ p: { xs: 2, sm: 2.25 }, mb: 3, borderRadius: 3 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: { xs: 'flex-start', md: 'center' },
+              flexDirection: { xs: 'column', md: 'row' },
+              gap: 1.25,
+            }}
+          >
             <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, color: 'text.secondary' }}>
               <Typography variant="body2" color="inherit">
                 Submitted by
@@ -186,13 +205,21 @@ export default function ReviewDetailPage() {
                 {' • '}
               </Typography>
               <Typography variant="body2" color="inherit">
-                {submission.submitted_at
-                  ? formatDistanceToNow(new Date(submission.submitted_at), { addSuffix: true })
-                  : 'Not submitted yet'}
+                {submission.submitted_at ? formatLocalDateTimeWithRelative(submission.submitted_at) : 'Not submitted yet'}
               </Typography>
             </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+              <StatusChip
+                status={submission.status}
+                size="medium"
+                labelOverride={getDerivedSubmissionLabel(submission.status, hasAssignee)}
+              />
+            </Box>
           </Box>
-        </Stack>
+          <Box sx={{ flex: 1 }}>
+            <RequestStageStepper status={submission.status} hasAssignee={hasAssignee} />
+          </Box>
+        </Box>
       </Card>
 
       <Paper sx={{ borderRadius: 3 }}>
@@ -212,37 +239,48 @@ export default function ReviewDetailPage() {
           <Box sx={{ px: 3, pb: 3 }}>
             {submission.workflow_actions && submission.workflow_actions.length > 0 ? (
               <Stack spacing={2}>
-                {submission.workflow_actions.map((action: WorkflowAction) => (
-                  <Box
-                    key={action.id}
-                    sx={{
-                      p: 2,
-                      borderRadius: 2,
-                      bgcolor: 'action.hover',
-                      borderLeft: 4,
-                      borderColor:
-                        action.action === 'approve'
-                          ? 'success.main'
-                          : action.action === 'reject'
-                            ? 'error.main'
-                            : action.action === 'request_changes'
-                              ? 'warning.main'
-                              : 'primary.main',
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {action.user?.full_name || 'System'} - {action.action.replace('_', ' ')}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {formatDistanceToNow(new Date(action.created_at), { addSuffix: true })}
-                    </Typography>
-                    {action.comment && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
-                        {`"${action.comment}"`}
+                {submission.workflow_actions.map((action: WorkflowAction) => {
+                  const historyView = getWorkflowHistoryView(action.action, action.from_status, action.to_status);
+
+                  return (
+                    <Box
+                      key={action.id}
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        bgcolor: 'action.hover',
+                        borderLeft: 4,
+                        borderColor:
+                          action.action === 'approve'
+                            ? 'success.main'
+                            : action.action === 'reject'
+                              ? 'error.main'
+                              : action.action === 'request_changes'
+                                ? 'warning.main'
+                                : 'primary.main',
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {action.user?.full_name || 'System'} - {historyView.actionLabel}
                       </Typography>
-                    )}
-                  </Box>
-                ))}
+                      <Typography variant="caption" color="text.secondary">
+                        {formatLocalDateTimeWithRelative(action.created_at)}
+                      </Typography>
+                      <Stack direction="row" spacing={1} sx={{ mt: 1 }} useFlexGap flexWrap="wrap" alignItems="center">
+                        <Chip label={historyView.fromLabel} size="small" variant="outlined" />
+                        <Typography variant="caption" color="text.secondary">
+                          to
+                        </Typography>
+                        <Chip label={historyView.toLabel} size="small" variant="outlined" />
+                      </Stack>
+                      {action.comment && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic' }}>
+                          {`"${action.comment}"`}
+                        </Typography>
+                      )}
+                    </Box>
+                  );
+                })}
               </Stack>
             ) : <EmptyState title="No history" />}
           </Box>
@@ -270,7 +308,7 @@ export default function ReviewDetailPage() {
                         {comment.user?.full_name || 'Unknown'}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+                        {formatLocalDateTimeWithRelative(comment.created_at)}
                       </Typography>
                     </Box>
                     <Typography variant="body2">{comment.comment}</Typography>
@@ -284,18 +322,20 @@ export default function ReviewDetailPage() {
 
       {submission.status === 'under_review' && !isAssignedToCurrentUser && assigneeName && (
         <Alert severity="info" sx={{ mt: 3 }}>
-          This request is currently checked out by {assigneeName}.
+          This approval is currently checked out by {assigneeName}.
         </Alert>
       )}
 
       {showActionPanel && (
         <Card sx={{ mt: 3, p: 3, borderRadius: 3 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-            Review Actions
+            {isReviewerStage ? 'Reviewer Actions' : 'Approver Actions'}
           </Typography>
           {canStartReview && (
             <Alert severity="info" sx={{ mb: 2 }}>
-              Start the review to check out this request and continue the decision workflow.
+              {isReviewerStage
+                ? 'Start review to check out this request, complete your review, and then forward it to the approver.'
+                : 'Start approval to check out this request and complete the final decision.'}
             </Alert>
           )}
           <TextField
@@ -303,7 +343,7 @@ export default function ReviewDetailPage() {
             multiline
             minRows={3}
             placeholder={canStartReview
-              ? 'Optional note for starting this review...'
+              ? 'Optional note for starting this step...'
               : 'Add a comment. This is required for rejection and change requests.'}
             value={commentText}
             onChange={(event) => setCommentText(event.target.value)}
@@ -317,29 +357,31 @@ export default function ReviewDetailPage() {
                 disabled={!!actionLoading}
                 onClick={() => handleWorkflowAction('start-review')}
               >
-                Start Review
+                {isReviewerStage ? 'Start Review' : 'Start Approval'}
               </Button>
             )}
             {canApproveOrReject && (
               <>
                 <Button
                   variant="contained"
-                  color="success"
+                  color={isReviewerStage ? 'primary' : 'success'}
                   startIcon={actionLoading === 'approve' ? <CircularProgress size={16} /> : <CheckCircle />}
                   disabled={!!actionLoading}
                   onClick={() => handleWorkflowAction('approve')}
                 >
-                  Approve
+                  {isReviewerStage ? 'Send To Approver' : 'Approve'}
                 </Button>
-                <Button
-                  variant="contained"
-                  color="error"
-                  startIcon={actionLoading === 'reject' ? <CircularProgress size={16} /> : <Cancel />}
-                  disabled={!!actionLoading}
-                  onClick={() => setConfirmAction('reject')}
-                >
-                  Reject
-                </Button>
+                {isApproverStage && (
+                  <Button
+                    variant="contained"
+                    color="error"
+                    startIcon={actionLoading === 'reject' ? <CircularProgress size={16} /> : <Cancel />}
+                    disabled={!!actionLoading}
+                    onClick={() => setConfirmAction('reject')}
+                  >
+                    Reject
+                  </Button>
+                )}
               </>
             )}
             {canRequestChanges && (

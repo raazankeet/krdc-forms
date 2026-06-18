@@ -34,7 +34,7 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const promises: Promise<unknown>[] = [];
-      if (isAdmin || isResearchUser) {
+      if (isResearchUser) {
         promises.push(
           apiService.get<{ success: boolean; data: UserDashboardStats }>('/api/v1/reports/user/dashboard')
             .then((r) => setUserStats(r.data))
@@ -46,7 +46,7 @@ export default function DashboardPage() {
             .then((r) => setAdminStats(r.data))
         );
       }
-      if (isReviewer || isAdmin) {
+      if (isReviewer) {
         promises.push(
           apiService.get<{ success: boolean; data: ReviewerDashboardStats }>('/api/v1/reports/reviewer/dashboard')
             .then((r) => setReviewerStats(r.data))
@@ -66,7 +66,7 @@ export default function DashboardPage() {
 
   const statCards: StatCard[] = [];
 
-  if (isResearchUser || isAdmin) {
+  if (isResearchUser) {
     statCards.push(
       { title: 'Total Submissions', value: userStats?.my_submissions_total ?? '—', icon: <Description />, color: 'primary.main', bgcolor: 'primary.light' },
       { title: 'Drafts', value: userStats?.drafts ?? '—', icon: <Drafts />, color: 'text.secondary', bgcolor: 'grey.200' },
@@ -75,7 +75,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (isReviewer || isAdmin) {
+  if (isReviewer) {
     statCards.push(
       { title: 'Pending Reviews', value: reviewerStats?.pending_reviews ?? '—', icon: <HourglassEmpty />, color: 'warning.main', bgcolor: 'warning.light' },
       { title: 'Reviewed Today', value: reviewerStats?.reviewed_today ?? '—', icon: <RateReview />, color: 'info.main', bgcolor: 'info.light' },

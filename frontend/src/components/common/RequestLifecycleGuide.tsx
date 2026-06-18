@@ -20,12 +20,12 @@ const lifecycleStepsByContext: Record<GuideContext, LifecycleStep[]> = {
     {
       status: 'submitted',
       title: 'Submitted',
-      description: 'Your request has been sent to the review team. At this point it is waiting to be picked up for review.',
+      description: 'Your request has been sent to the reviewer stage. It is waiting for the assigned reviewer to pick it up.',
     },
     {
       status: 'under_review',
-      title: 'Under Review',
-      description: 'A reviewer or approver is actively evaluating your request. You should wait for approval or feedback.',
+      title: 'Under Approval',
+      description: 'The reviewer has completed the first check and the request is now with the approver stage for the final decision.',
     },
     {
       status: 'needs_correction',
@@ -42,12 +42,12 @@ const lifecycleStepsByContext: Record<GuideContext, LifecycleStep[]> = {
     {
       status: 'submitted',
       title: 'Submitted',
-      description: 'The request is waiting in the queue. This is the point where a reviewer or approver should pick it up.',
+      description: 'The request is waiting in the reviewer queue. The assigned reviewer should start review here.',
     },
     {
       status: 'under_review',
-      title: 'Under Review',
-      description: 'The request has been started by a reviewer. This is the decision stage for approval or return with comments.',
+      title: 'Under Approval',
+      description: 'The reviewer has already completed the first stage. The assigned approver should now start approval or return it with comments.',
     },
     {
       status: 'needs_correction',
@@ -69,12 +69,12 @@ const lifecycleStepsByContext: Record<GuideContext, LifecycleStep[]> = {
     {
       status: 'submitted',
       title: 'Submitted',
-      description: 'The request has entered the queue and is waiting for a reviewer or approver to begin work.',
+      description: 'The request has entered the reviewer queue and is waiting for the assigned reviewer.',
     },
     {
       status: 'under_review',
-      title: 'Under Review',
-      description: 'The request is actively being handled by the review side and is in its decision stage.',
+      title: 'Under Approval',
+      description: 'The reviewer stage is complete and the request is now waiting for approver action.',
     },
     {
       status: 'needs_correction',
@@ -102,12 +102,13 @@ const guideHighlights: Record<GuideContext, string[]> = {
     'Comments and review history explain why a request came back.',
   ],
   reviewer: [
-    'Start review before trying to approve or return a request.',
+    'The operational chain is researcher to reviewer to approver.',
+    'Start review before trying to complete your stage or return a request.',
     'Use comments when returning a request so the submitter knows exactly what to fix.',
-    'Approved requests are complete and should not return to the review queue.',
+    'Reviewer approval forwards the request to the approver. Approver approval completes it.',
   ],
   manager: [
-    'The queue moves from submitter preparation to reviewer action, then either approval or return for correction.',
+    'The queue moves from submitter preparation to reviewer action, then to approver action, then to final approval or return for correction.',
     'Returned requests should come back through resubmission, not through a brand-new request.',
     'Status, comments, and workflow history should tell the same story everywhere in the app.',
   ],

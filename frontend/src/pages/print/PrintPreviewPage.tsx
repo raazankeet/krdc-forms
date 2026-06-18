@@ -19,6 +19,7 @@ import { getFormComponent } from '../../forms/registry';
 import { useAuth } from '../../contexts/AuthContext';
 import PageHeader from '../../components/common/PageHeader';
 import LoadingSkeleton from '../../components/common/LoadingSkeleton';
+import { parseApiDateTime } from '../../utils/dateTime';
 import type { ApiResponse, Submission } from '../../types';
 
 const DEFAULT_PRINT_SCALE = 0.94;
@@ -62,26 +63,26 @@ interface PrintData {
   printed_at: string | null;
 }
 
-function formatDateValue(value?: string | null, pattern = 'PPP'): string {
+function formatDateValue(value?: string | null, pattern = 'dd/MM/yyyy'): string {
   if (!value) return '-';
-  const parsed = new Date(value);
+  const parsed = parseApiDateTime(value);
   return isValid(parsed) ? format(parsed, pattern) : '-';
 }
 
-function getApprovedByName(submission: Submission | null): string {
+function getReviewerByName(submission: Submission | null): string {
+  if (!submission?.workflow_actions) return '';
+  const reviewCompletionAction = [...submission.workflow_actions]
+    .reverse()
+    .find((action) => action.from_status === 'submitted' && action.action !== 'submit' && action.action !== 'resubmit');
+  return reviewCompletionAction?.user?.full_name || '';
+}
+
+function getApproverByName(submission: Submission | null): string {
   if (!submission?.workflow_actions) return '';
   const approvalAction = [...submission.workflow_actions]
     .reverse()
-    .find((action) => action.action === 'approve');
+    .find((action) => action.from_status === 'under_review' && action.user?.full_name);
   return approvalAction?.user?.full_name || '';
-}
-
-function getReviewedByName(submission: Submission | null): string {
-  if (!submission?.workflow_actions) return '';
-  const reviewAction = [...submission.workflow_actions]
-    .reverse()
-    .find((action) => action.action !== 'submit' && action.user?.full_name);
-  return reviewAction?.user?.full_name || getApprovedByName(submission) || '';
 }
 
 export default function PrintPreviewPage() {
@@ -153,9 +154,11 @@ export default function PrintPreviewPage() {
     ? {
         ...baseFormData,
         calculated_by: printData.submitted_by || baseFormData.calculated_by || '',
-        checked_by: getApprovedByName(submission) || baseFormData.checked_by || '',
+        checked_by: getApproverByName(submission) || baseFormData.checked_by || '',
       }
     : baseFormData;
+  const reviewerName = getReviewerByName(submission) || '-';
+  const approverName = getApproverByName(submission) || '-';
 
   const handleSavePrintScale = useCallback(async () => {
     if (!submission?.form?.id) return;
@@ -335,25 +338,41 @@ export default function PrintPreviewPage() {
             />
           </Box>
 
-          <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2, maxWidth: 980, mx: 'auto' }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.25,
+              mb: 2,
+              borderRadius: 2,
+              maxWidth: 1080,
+              mx: 'auto',
+              '@media print': {
+                p: 1,
+                mb: 1.5,
+              },
+            }}
+          >
             <Box
               sx={{
                 display: 'grid',
-                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' },
-                gap: 1.5,
+                gridTemplateColumns: { xs: '1fr', lg: 'repeat(4, minmax(0, 1fr))' },
+                columnGap: 1.5,
+                rowGap: 0.85,
                 '@media print': {
-                  gridTemplateColumns: '1fr 1fr 1fr',
-                  gap: 1,
+                  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                  columnGap: 1.25,
+                  rowGap: 0.6,
                 },
               }}
             >
-              <MetaItem label="Request Number" value={printData.request_number} />
+              <MetaItem label="Request Number" value={printData.request_number} mono />
               <MetaItem label="Submitted By" value={printData.submitted_by} />
-              <MetaItem label="Reviewed By" value={getReviewedByName(submission) || '-'} />
+              <MetaItem label="Reviewed By" value={reviewerName} />
+              <MetaItem label="Approved By" value={approverName} />
               <MetaItem label="Form Type" value={formTypeLabel} />
-              <MetaItem label="Submitted Date" value={formatDateValue(printData.submitted_at, 'PPP')} />
+              <MetaItem label="Submitted Date" value={formatDateValue(printData.submitted_at, 'dd/MM/yyyy')} />
               <MetaItem label="Version" value={`v${printData.version_number}`} />
-              <MetaItem label="Printed At" value={formatDateValue(printData.printed_at, 'PPP pp')} />
+              <MetaItem label="Printed At" value={formatDateValue(printData.printed_at, 'dd/MM/yyyy h:mm a')} />
             </Box>
           </Paper>
 
@@ -413,11 +432,44 @@ export default function PrintPreviewPage() {
 
 function MetaItem({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.15, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: 1.1 }}>
+    <Box sx={{ minWidth: 0 }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{
+          mb: 0.1,
+          display: 'block',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          lineHeight: 1,
+          fontSize: '0.68rem',
+        }}
+      >
         {label}
       </Typography>
-      <Typography variant="body2" sx={mono ? { fontFamily: 'monospace', fontWeight: 600, lineHeight: 1.15 } : { fontWeight: 600, lineHeight: 1.15 }}>
+      <Typography
+        variant="body2"
+        sx={
+          mono
+            ? {
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              lineHeight: 1.08,
+              fontSize: '0.84rem',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }
+            : {
+              fontWeight: 700,
+              lineHeight: 1.08,
+              fontSize: '0.8rem',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }
+        }
+      >
         {value}
       </Typography>
     </Box>

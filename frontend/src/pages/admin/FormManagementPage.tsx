@@ -6,7 +6,7 @@ import {
   Avatar, Autocomplete,
 } from '@mui/material';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
-import { Add, Edit, Refresh, PersonAdd, RateReview } from '@mui/icons-material';
+import { Add, Edit, Refresh, PersonAdd, RateReview, VerifiedUser, Settings } from '@mui/icons-material';
 import { useSnackbar } from 'notistack';
 import { apiService } from '../../services/api';
 import PageHeader from '../../components/common/PageHeader';
@@ -46,7 +46,6 @@ export default function FormManagementPage() {
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
 
-  // Create/Edit dialog
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingForm, setEditingForm] = useState<Form | null>(null);
   const [formData, setFormData] = useState({
@@ -62,19 +61,19 @@ export default function FormManagementPage() {
   });
   const [formLoading, setFormLoading] = useState(false);
 
-  // Assign dialog — one dialog, two sections (Submitters + Reviewers)
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [assignTargetForm, setAssignTargetForm] = useState<Form | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [selectedSubmitters, setSelectedSubmitters] = useState<number[]>([]);
   const [selectedReviewers, setSelectedReviewers] = useState<number[]>([]);
+  const [selectedApprovers, setSelectedApprovers] = useState<number[]>([]);
   const [assignLoading, setAssignLoading] = useState(false);
 
-  // Detail panel
   const [detailTabs, setDetailTabs] = useState<Record<number, number>>({});
   const [detailData, setDetailData] = useState<Record<number, {
     submitters?: AssignedUser[];
     reviewers?: AssignedUser[];
+    approvers?: AssignedUser[];
     loading: boolean;
   }>>({});
 
@@ -88,67 +87,91 @@ export default function FormManagementPage() {
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
       setError(axiosErr?.response?.data?.error?.message || 'Failed to load forms.');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, [page]);
 
   const fetchAllUsers = useCallback(async () => {
     try {
       const res = await apiService.get<ApiResponse<User[]>>('/api/v1/users', { page_size: 100 });
       setAllUsers(res.data || []);
-    } catch {}
+    } catch {
+      // Non-blocking.
+    }
   }, []);
 
-  useEffect(() => { fetchForms(); fetchAllUsers(); }, [fetchForms, fetchAllUsers]);
+  useEffect(() => {
+    fetchForms();
+    fetchAllUsers();
+  }, [fetchForms, fetchAllUsers]);
 
-  // Load detail data on row expand
   const loadDetailData = useCallback(async (formId: number, tabIndex: number) => {
-    setDetailTabs(prev => ({ ...prev, [formId]: tabIndex }));
+    setDetailTabs((prev) => ({ ...prev, [formId]: tabIndex }));
     const current = detailData[formId];
-    const needsFetch = (tabIndex === 0 || tabIndex === 1) && (!current?.submitters && !current?.reviewers);
+    const needsFetch = (tabIndex === 0 || tabIndex === 1 || tabIndex === 2)
+      && (!current?.submitters || !current?.reviewers || !current?.approvers);
     if (!needsFetch) return;
 
-    setDetailData(prev => ({ ...prev, [formId]: { ...prev[formId], loading: true } }));
+    setDetailData((prev) => ({ ...prev, [formId]: { ...prev[formId], loading: true } }));
     try {
-      const res = await apiService.get<ApiResponse<{ submitters: AssignedUser[]; reviewers: AssignedUser[] }>>(
-        `/api/v1/forms/${formId}/assigned-users`
+      const res = await apiService.get<ApiResponse<{ submitters: AssignedUser[]; reviewers: AssignedUser[]; approvers: AssignedUser[] }>>(
+        `/api/v1/forms/${formId}/assigned-users`,
       );
-      setDetailData(prev => ({
+      setDetailData((prev) => ({
         ...prev,
         [formId]: {
           submitters: res.data?.submitters || [],
           reviewers: res.data?.reviewers || [],
+          approvers: res.data?.approvers || [],
           loading: false,
         },
       }));
     } catch {
-      setDetailData(prev => ({ ...prev, [formId]: { loading: false } }));
+      setDetailData((prev) => ({ ...prev, [formId]: { ...prev[formId], loading: false } }));
     }
   }, [detailData]);
 
   const openCreate = () => {
     setEditingForm(null);
-    setFormData({ form_code: '', name: '', description: '', is_active: true, requires_approval: true, approval_levels: 1, print_scale: DEFAULT_PRINT_SCALE, numbering_prefix: '', numbering_year_reset: true, field_definitions: [] });
+    setFormData({
+      form_code: '',
+      name: '',
+      description: '',
+      is_active: true,
+      requires_approval: true,
+      approval_levels: 1,
+      print_scale: DEFAULT_PRINT_SCALE,
+      numbering_prefix: '',
+      numbering_year_reset: true,
+      field_definitions: [],
+    });
     setDialogOpen(true);
   };
 
   const openEdit = async (form: Form) => {
     try {
       const res = await apiService.get<ApiResponse<Form>>(`/api/v1/forms/${form.id}`);
-      const f = res.data;
-      setEditingForm(f);
+      const loadedForm = res.data;
+      setEditingForm(loadedForm);
       setFormData({
-        form_code: f.form_code, name: f.name, description: f.description,
-        is_active: f.is_active, requires_approval: f.requires_approval,
-        approval_levels: f.approval_levels,
-        print_scale: f.print_scale ?? DEFAULT_PRINT_SCALE,
-        numbering_prefix: f.numbering?.prefix || '',
-        numbering_year_reset: f.numbering?.year_reset ?? true,
-        field_definitions: (f.fields || []).map((fd: FormFieldDefinition) => ({
-          field_name: fd.field_name, field_label: fd.field_label,
-          field_type: fd.field_type, is_required: fd.is_required,
-          validation_rules: JSON.stringify(fd.validation_rules || {}),
-          options: (fd.options || []).join('\n'),
-          display_order: fd.display_order,
+        form_code: loadedForm.form_code,
+        name: loadedForm.name,
+        description: loadedForm.description,
+        is_active: loadedForm.is_active,
+        requires_approval: loadedForm.requires_approval,
+        approval_levels: loadedForm.approval_levels,
+        print_scale: loadedForm.print_scale ?? DEFAULT_PRINT_SCALE,
+        numbering_prefix: loadedForm.numbering?.prefix || '',
+        numbering_year_reset: loadedForm.numbering?.year_reset ?? true,
+        field_definitions: (loadedForm.fields || []).map((field: FormFieldDefinition) => ({
+          field_name: field.field_name,
+          field_label: field.field_label,
+          field_type: field.field_type,
+          is_required: field.is_required,
+          validation_rules: JSON.stringify(field.validation_rules || {}),
+          options: (field.options || []).join('\n'),
+          display_order: field.display_order,
         })),
       });
       setDialogOpen(true);
@@ -171,28 +194,38 @@ export default function FormManagementPage() {
         print_scale: Number(formData.print_scale) || DEFAULT_PRINT_SCALE,
         numbering_prefix: formData.numbering_prefix,
         numbering_year_reset: formData.numbering_year_reset,
-        field_definitions: formData.field_definitions.map((fd, idx) => ({
-          field_name: fd.field_name,
-          field_label: fd.field_label,
-          field_type: fd.field_type,
-          is_required: fd.is_required,
-          validation_rules: (() => { try { return JSON.parse(fd.validation_rules || '{}'); } catch { return {}; } })(),
-          options: fd.options ? fd.options.split('\n').filter(Boolean) : null,
-          display_order: fd.display_order || idx,
+        field_definitions: formData.field_definitions.map((field, idx) => ({
+          field_name: field.field_name,
+          field_label: field.field_label,
+          field_type: field.field_type,
+          is_required: field.is_required,
+          validation_rules: (() => {
+            try {
+              return JSON.parse(field.validation_rules || '{}');
+            } catch {
+              return {};
+            }
+          })(),
+          options: field.options ? field.options.split('\n').filter(Boolean) : null,
+          display_order: field.display_order || idx,
         })),
       };
+
       if (editingForm) {
         await apiService.put(`/api/v1/forms/${editingForm.id}`, payload);
       } else {
         await apiService.post('/api/v1/forms', payload);
       }
+
       enqueueSnackbar(editingForm ? 'Form updated.' : 'Form created.', { variant: 'success' });
       setDialogOpen(false);
       fetchForms();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
       enqueueSnackbar(axiosErr?.response?.data?.error?.message || 'Failed to save form.', { variant: 'error' });
-    } finally { setFormLoading(false); }
+    } finally {
+      setFormLoading(false);
+    }
   };
 
   const handleToggleActive = async (form: Form) => {
@@ -204,19 +237,20 @@ export default function FormManagementPage() {
     }
   };
 
-  // Open the unified assign dialog (loads current submitters & reviewers)
   const openAssignDialog = async (form: Form) => {
     setAssignTargetForm(form);
     setAssignLoading(true);
     try {
-      const res = await apiService.get<ApiResponse<{ submitters: AssignedUser[]; reviewers: AssignedUser[] }>>(
-        `/api/v1/forms/${form.id}/assigned-users`
+      const res = await apiService.get<ApiResponse<{ submitters: AssignedUser[]; reviewers: AssignedUser[]; approvers: AssignedUser[] }>>(
+        `/api/v1/forms/${form.id}/assigned-users`,
       );
-      setSelectedSubmitters((res.data?.submitters || []).map(u => u.id));
-      setSelectedReviewers((res.data?.reviewers || []).map(u => u.id));
+      setSelectedSubmitters((res.data?.submitters || []).map((user) => user.id));
+      setSelectedReviewers((res.data?.reviewers || []).map((user) => user.id));
+      setSelectedApprovers((res.data?.approvers || []).map((user) => user.id));
     } catch {
       setSelectedSubmitters([]);
       setSelectedReviewers([]);
+      setSelectedApprovers([]);
     }
     setAssignLoading(false);
     setAssignDialogOpen(true);
@@ -226,52 +260,69 @@ export default function FormManagementPage() {
     if (!assignTargetForm) return;
     setAssignLoading(true);
     try {
-      const res = await apiService.post<ApiResponse<{ submitters_count: number; reviewers_count: number }>>(
+      const res = await apiService.post<ApiResponse<{ submitters_count: number; reviewers_count: number; approvers_count: number }>>(
         `/api/v1/forms/${assignTargetForm.id}/assign`,
-        { submitters: selectedSubmitters, reviewers: selectedReviewers }
+        {
+          submitters: selectedSubmitters,
+          reviewers: selectedReviewers,
+          approvers: selectedApprovers,
+        },
       );
-      const { submitters_count, reviewers_count } = res.data || {};
+      const { submitters_count, reviewers_count, approvers_count } = res.data || {};
       enqueueSnackbar(
-        `Saved: ${submitters_count ?? 0} submitter(s), ${reviewers_count ?? 0} reviewer(s).`,
-        { variant: 'success' }
+        `Saved: ${submitters_count ?? 0} submitter(s), ${reviewers_count ?? 0} reviewer(s), ${approvers_count ?? 0} approver(s).`,
+        { variant: 'success' },
       );
       setAssignDialogOpen(false);
-      // Clear detail cache so it reloads on next expand
-      setDetailData(prev => {
+      setDetailData((prev) => {
         const next = { ...prev };
         if (next[assignTargetForm.id]) {
-          next[assignTargetForm.id] = { ...next[assignTargetForm.id], submitters: undefined, reviewers: undefined };
+          next[assignTargetForm.id] = {
+            ...next[assignTargetForm.id],
+            submitters: undefined,
+            reviewers: undefined,
+            approvers: undefined,
+          };
         }
         return next;
       });
       fetchForms();
     } catch {
       enqueueSnackbar('Failed to save assignments.', { variant: 'error' });
-    } finally { setAssignLoading(false); }
+    } finally {
+      setAssignLoading(false);
+    }
   };
 
   const addField = () => {
-    setFormData({
-      ...formData,
-      field_definitions: [...formData.field_definitions, {
-        field_name: '', field_label: '', field_type: 'text',
-        is_required: false, validation_rules: '{}', options: '',
-        display_order: formData.field_definitions.length,
-      }],
-    });
+    setFormData((prev) => ({
+      ...prev,
+      field_definitions: [
+        ...prev.field_definitions,
+        {
+          field_name: '',
+          field_label: '',
+          field_type: 'text',
+          is_required: false,
+          validation_rules: '{}',
+          options: '',
+          display_order: prev.field_definitions.length,
+        },
+      ],
+    }));
   };
 
   const removeField = (idx: number) => {
-    setFormData({
-      ...formData,
-      field_definitions: formData.field_definitions.filter((_, i) => i !== idx),
-    });
+    setFormData((prev) => ({
+      ...prev,
+      field_definitions: prev.field_definitions.filter((_, index) => index !== idx),
+    }));
   };
 
   const updateField = (idx: number, updates: Partial<typeof formData.field_definitions[0]>) => {
     const fields = [...formData.field_definitions];
     fields[idx] = { ...fields[idx], ...updates };
-    setFormData({ ...formData, field_definitions: fields });
+    setFormData((prev) => ({ ...prev, field_definitions: fields }));
   };
 
   const columns: MRT_ColumnDef<Form>[] = [
@@ -283,13 +334,7 @@ export default function FormManagementPage() {
     },
     { accessorKey: 'name', header: 'Name', size: 180 },
     {
-      accessorKey: 'description',
-      header: 'Description',
-      size: 200,
-      Cell: ({ cell }) => <Typography variant="body2" color="text.secondary">{cell.getValue<string>()}</Typography>,
-    },
-    {
-      accessorFn: (row) => row.print_scale ?? 0.94,
+      accessorFn: (row) => row.print_scale ?? DEFAULT_PRINT_SCALE,
       id: 'print_scale',
       header: 'Print Scale',
       size: 110,
@@ -319,53 +364,21 @@ export default function FormManagementPage() {
       muiTableBodyCellProps: { align: 'center' },
     },
     {
-      accessorFn: (row) => row.submitters_count ?? 0,
-      id: 'submitters',
-      header: 'Submitters',
-      size: 190,
-      Cell: ({ cell, row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Chip
-            label={cell.getValue<number>()}
-            size="small"
-            color={cell.getValue<number>() > 0 ? 'primary' : 'default'}
-            variant="outlined"
-          />
-          <Button
-            size="small"
-            variant="text"
-            startIcon={<PersonAdd fontSize="small" />}
-            onClick={(e) => { e.stopPropagation(); openAssignDialog(row.original); }}
-            sx={{ minWidth: 'auto', textTransform: 'none', fontSize: '0.75rem' }}
-          >
-            Manage
-          </Button>
-        </Box>
-      ),
-    },
-    {
-      accessorFn: (row) => row.reviewers_count ?? 0,
-      id: 'reviewers',
-      header: 'Reviewers',
-      size: 190,
-      Cell: ({ cell, row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Chip
-            label={cell.getValue<number>()}
-            size="small"
-            color={cell.getValue<number>() > 0 ? 'secondary' : 'default'}
-            variant="outlined"
-          />
-          <Button
-            size="small"
-            variant="text"
-            startIcon={<RateReview fontSize="small" />}
-            onClick={(e) => { e.stopPropagation(); openAssignDialog(row.original); }}
-            sx={{ minWidth: 'auto', textTransform: 'none', fontSize: '0.75rem' }}
-          >
-            Manage
-          </Button>
-        </Box>
+      accessorFn: (row) => ({
+        submitters: row.submitters_count ?? 0,
+        reviewers: row.reviewers_count ?? 0,
+        approvers: row.approvers_count ?? 0,
+      }),
+      id: 'workflow_access',
+      header: 'Workflow Access',
+      size: 320,
+      Cell: ({ row }) => (
+        <WorkflowAccessCell
+          submitters={row.original.submitters_count ?? 0}
+          reviewers={row.original.reviewers_count ?? 0}
+          approvers={row.original.approvers_count ?? 0}
+          onManage={() => openAssignDialog(row.original)}
+        />
       ),
     },
   ];
@@ -400,25 +413,26 @@ export default function FormManagementPage() {
 
       return (
         <Box sx={{ p: 3, bgcolor: 'action.hover', borderTop: 1, borderColor: 'divider' }}>
-          <Tabs value={activeTab} onChange={(_, v) => loadDetailData(formId, v)} sx={{ mb: 2, minHeight: 40 }}>
+          <Tabs value={activeTab} onChange={(_, value) => loadDetailData(formId, value)} sx={{ mb: 2, minHeight: 40 }}>
             <Tab label={`Submitters (${row.original.submitters_count ?? 0})`} sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label={`Reviewers (${row.original.reviewers_count ?? 0})`} sx={{ minHeight: 40, textTransform: 'none' }} />
+            <Tab label={`Approvers (${row.original.approvers_count ?? 0})`} sx={{ minHeight: 40, textTransform: 'none' }} />
             <Tab label={`Fields (${row.original.fields?.length ?? 0})`} sx={{ minHeight: 40, textTransform: 'none' }} />
           </Tabs>
 
           {activeTab === 0 && renderUserChips(data?.submitters, data?.loading, 'submitters')}
           {activeTab === 1 && renderUserChips(data?.reviewers, data?.loading, 'reviewers')}
-
-          {activeTab === 2 && (
+          {activeTab === 2 && renderUserChips(data?.approvers, data?.loading, 'approvers')}
+          {activeTab === 3 && (
             row.original.fields && row.original.fields.length > 0 ? (
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {row.original.fields.map((f, i) => (
+                {row.original.fields.map((field, index) => (
                   <Chip
-                    key={f.id || i}
-                    label={`${f.field_label} (${f.field_type}${f.is_required ? ', required' : ''})`}
+                    key={field.id || index}
+                    label={`${field.field_label} (${field.field_type}${field.is_required ? ', required' : ''})`}
                     size="small"
                     variant="outlined"
-                    color={f.is_required ? 'warning' : 'default'}
+                    color={field.is_required ? 'warning' : 'default'}
                   />
                 ))}
               </Box>
@@ -441,7 +455,10 @@ export default function FormManagementPage() {
         size="small"
         variant="outlined"
         startIcon={<Edit fontSize="small" />}
-        onClick={(e) => { e.stopPropagation(); openEdit(row.original); }}
+        onClick={(event) => {
+          event.stopPropagation();
+          openEdit(row.original);
+        }}
         sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
       >
         Edit
@@ -478,23 +495,23 @@ export default function FormManagementPage() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} action={<Button size="small" onClick={fetchForms}>Retry</Button>}>{error}</Alert>}
       {loading && !error && <LoadingSkeleton variant="table" rows={5} />}
-      {!loading && !error && forms.length === 0 && <EmptyState title="No forms" description="Create your first form to get started." actionLabel="Create Form" onAction={openCreate} />}
-      {!loading && !error && forms.length > 0 && (
-        <MaterialReactTable table={table} />
+      {!loading && !error && forms.length === 0 && (
+        <EmptyState title="No forms" description="Create your first form to get started." actionLabel="Create Form" onAction={openCreate} />
       )}
+      {!loading && !error && forms.length > 0 && <MaterialReactTable table={table} />}
 
-      {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>{editingForm ? `Edit: ${editingForm.name}` : 'Create Form'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Form Code" value={formData.form_code} onChange={(e) => setFormData({ ...formData, form_code: e.target.value.toUpperCase() })} disabled={!!editingForm} fullWidth required helperText="Unique code, e.g. MPAI" />
-            <TextField label="Name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} fullWidth required />
-            <TextField label="Description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} fullWidth multiline minRows={2} />
+            <TextField label="Form Code" value={formData.form_code} onChange={(event) => setFormData({ ...formData, form_code: event.target.value.toUpperCase() })} disabled={!!editingForm} fullWidth required helperText="Unique code, e.g. MPAI" />
+            <TextField label="Name" value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} fullWidth required />
+            <TextField label="Description" value={formData.description} onChange={(event) => setFormData({ ...formData, description: event.target.value })} fullWidth multiline minRows={2} />
             <Stack direction="row" spacing={3}>
-              <FormControlLabel control={<Switch checked={formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })} />} label="Active" />
-              <FormControlLabel control={<Switch checked={formData.requires_approval} onChange={(e) => setFormData({ ...formData, requires_approval: e.target.checked })} />} label="Requires Approval" />
+              <FormControlLabel control={<Switch checked={formData.is_active} onChange={(event) => setFormData({ ...formData, is_active: event.target.checked })} />} label="Active" />
+              <FormControlLabel control={<Switch checked={formData.requires_approval} onChange={(event) => setFormData({ ...formData, requires_approval: event.target.checked })} />} label="Requires Approval" />
             </Stack>
+
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
                 Default Print Scale
@@ -522,8 +539,8 @@ export default function FormManagementPage() {
 
             <Typography variant="subtitle1" sx={{ fontWeight: 600, mt: 1 }}>Request Numbering</Typography>
             <Stack direction="row" spacing={2}>
-              <TextField label="Prefix" value={formData.numbering_prefix} onChange={(e) => setFormData({ ...formData, numbering_prefix: e.target.value })} size="small" helperText="e.g. REQ-MPAI" />
-              <FormControlLabel control={<Switch checked={formData.numbering_year_reset} onChange={(e) => setFormData({ ...formData, numbering_year_reset: e.target.checked })} />} label="Year Reset" />
+              <TextField label="Prefix" value={formData.numbering_prefix} onChange={(event) => setFormData({ ...formData, numbering_prefix: event.target.value })} size="small" helperText="e.g. REQ-MPAI" />
+              <FormControlLabel control={<Switch checked={formData.numbering_year_reset} onChange={(event) => setFormData({ ...formData, numbering_year_reset: event.target.checked })} />} label="Year Reset" />
             </Stack>
 
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
@@ -534,17 +551,17 @@ export default function FormManagementPage() {
               <Box key={idx} sx={{ p: 2, borderRadius: 2, border: 1, borderColor: 'divider' }}>
                 <Stack spacing={1.5}>
                   <Stack direction="row" spacing={1}>
-                    <TextField size="small" label="Field Name" value={field.field_name} onChange={(e) => updateField(idx, { field_name: e.target.value })} sx={{ flex: 1 }} helperText="snake_case" />
-                    <TextField size="small" label="Label" value={field.field_label} onChange={(e) => updateField(idx, { field_label: e.target.value })} sx={{ flex: 1 }} />
-                    <TextField size="small" select label="Type" value={field.field_type} onChange={(e) => updateField(idx, { field_type: e.target.value })} sx={{ width: 130 }}>
-                      {FIELD_TYPES.map((ft) => <MenuItem key={ft.value} value={ft.value}>{ft.label}</MenuItem>)}
+                    <TextField size="small" label="Field Name" value={field.field_name} onChange={(event) => updateField(idx, { field_name: event.target.value })} sx={{ flex: 1 }} helperText="snake_case" />
+                    <TextField size="small" label="Label" value={field.field_label} onChange={(event) => updateField(idx, { field_label: event.target.value })} sx={{ flex: 1 }} />
+                    <TextField size="small" select label="Type" value={field.field_type} onChange={(event) => updateField(idx, { field_type: event.target.value })} sx={{ width: 130 }}>
+                      {FIELD_TYPES.map((fieldType) => <MenuItem key={fieldType.value} value={fieldType.value}>{fieldType.label}</MenuItem>)}
                     </TextField>
                   </Stack>
                   <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-                    <FormControlLabel control={<Switch size="small" checked={field.is_required} onChange={(e) => updateField(idx, { is_required: e.target.checked })} />} label="Required" />
-                    <TextField size="small" label="Validation Rules (JSON)" value={field.validation_rules} onChange={(e) => updateField(idx, { validation_rules: e.target.value })} sx={{ flex: 1 }} />
+                    <FormControlLabel control={<Switch size="small" checked={field.is_required} onChange={(event) => updateField(idx, { is_required: event.target.checked })} />} label="Required" />
+                    <TextField size="small" label="Validation Rules (JSON)" value={field.validation_rules} onChange={(event) => updateField(idx, { validation_rules: event.target.value })} sx={{ flex: 1 }} />
                     {field.field_type === 'select' && (
-                      <TextField size="small" label="Options (one per line)" value={field.options} onChange={(e) => updateField(idx, { options: e.target.value })} multiline minRows={2} sx={{ flex: 1 }} />
+                      <TextField size="small" label="Options (one per line)" value={field.options} onChange={(event) => updateField(idx, { options: event.target.value })} multiline minRows={2} sx={{ flex: 1 }} />
                     )}
                   </Stack>
                   <Button size="small" color="error" onClick={() => removeField(idx)}>Remove</Button>
@@ -561,45 +578,84 @@ export default function FormManagementPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Assign Submitters & Reviewers Dialog — two sections */}
-      <Dialog open={assignDialogOpen} onClose={() => setAssignDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          Manage Access — {assignTargetForm?.name}
-        </DialogTitle>
+      <Dialog open={assignDialogOpen} onClose={() => setAssignDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Manage Workflow Access - {assignTargetForm?.name}</DialogTitle>
         <DialogContent>
           {assignLoading ? (
             <CircularProgress sx={{ mt: 2 }} />
           ) : (
-            <Stack spacing={3} sx={{ mt: 1 }}>
-              {/* Submitters Section */}
+            <Stack spacing={2.5} sx={{ mt: 1 }}>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+                  gap: 2,
+                }}
+              >
+                <AccessSummaryCard
+                  title="Submitters"
+                  description="Create, edit draft, submit, and resubmit."
+                  count={selectedSubmitters.length}
+                  color="primary"
+                  icon={<PersonAdd fontSize="small" />}
+                />
+                <AccessSummaryCard
+                  title="Reviewers"
+                  description="First review stage before approval."
+                  count={selectedReviewers.length}
+                  color="secondary"
+                  icon={<RateReview fontSize="small" />}
+                />
+                <AccessSummaryCard
+                  title="Approvers"
+                  description="Final decision stage with approve or return."
+                  count={selectedApprovers.length}
+                  color="success"
+                  icon={<VerifiedUser fontSize="small" />}
+                />
+              </Box>
               <Box>
                 <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <PersonAdd fontSize="small" color="primary" />
-                  Who can submit?
+                  Submitters
                 </Typography>
                 <Autocomplete
                   multiple
                   options={allUsers}
-                  getOptionLabel={(u) => `${u.full_name || u.username} (${u.email})`}
-                  value={allUsers.filter(u => selectedSubmitters.includes(u.id))}
-                  onChange={(_, vals) => setSelectedSubmitters(vals.map(v => v.id))}
+                  getOptionLabel={(user) => `${user.full_name || user.username} (${user.email})`}
+                  value={allUsers.filter((user) => selectedSubmitters.includes(user.id))}
+                  onChange={(_, values) => setSelectedSubmitters(values.map((value) => value.id))}
                   renderInput={(params) => <TextField {...params} label="Submitters" />}
                 />
               </Box>
 
-              {/* Reviewers Section */}
               <Box>
                 <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <RateReview fontSize="small" color="secondary" />
-                  Who can review?
+                  Reviewers
                 </Typography>
                 <Autocomplete
                   multiple
                   options={allUsers}
-                  getOptionLabel={(u) => `${u.full_name || u.username} (${u.email})`}
-                  value={allUsers.filter(u => selectedReviewers.includes(u.id))}
-                  onChange={(_, vals) => setSelectedReviewers(vals.map(v => v.id))}
+                  getOptionLabel={(user) => `${user.full_name || user.username} (${user.email})`}
+                  value={allUsers.filter((user) => selectedReviewers.includes(user.id))}
+                  onChange={(_, values) => setSelectedReviewers(values.map((value) => value.id))}
                   renderInput={(params) => <TextField {...params} label="Reviewers" />}
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <VerifiedUser fontSize="small" color="success" />
+                  Approvers
+                </Typography>
+                <Autocomplete
+                  multiple
+                  options={allUsers}
+                  getOptionLabel={(user) => `${user.full_name || user.username} (${user.email})`}
+                  value={allUsers.filter((user) => selectedApprovers.includes(user.id))}
+                  onChange={(_, values) => setSelectedApprovers(values.map((value) => value.id))}
+                  renderInput={(params) => <TextField {...params} label="Approvers" />}
                 />
               </Box>
             </Stack>
@@ -616,7 +672,120 @@ export default function FormManagementPage() {
   );
 }
 
-/** Helper to render a list of user chips */
+function WorkflowAccessCell({
+  submitters,
+  reviewers,
+  approvers,
+  onManage,
+}: {
+  submitters: number;
+  reviewers: number;
+  approvers: number;
+  onManage: () => void;
+}) {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 1,
+        py: 0.25,
+        minWidth: 0,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', minWidth: 0 }}>
+        <Chip
+          label={`S ${submitters}`}
+          size="small"
+          color={submitters > 0 ? 'primary' : 'default'}
+          variant="outlined"
+          sx={{ fontWeight: 700, borderRadius: 999 }}
+        />
+        <Chip
+          label={`R ${reviewers}`}
+          size="small"
+          color={reviewers > 0 ? 'secondary' : 'default'}
+          variant="outlined"
+          sx={{ fontWeight: 700, borderRadius: 999 }}
+        />
+        <Chip
+          label={`A ${approvers}`}
+          size="small"
+          color={approvers > 0 ? 'success' : 'default'}
+          variant="outlined"
+          sx={{ fontWeight: 700, borderRadius: 999 }}
+        />
+      </Box>
+      <Button
+        size="small"
+        variant="text"
+        startIcon={<Settings fontSize="small" />}
+        onClick={(event) => {
+          event.stopPropagation();
+          onManage();
+        }}
+        sx={{
+          px: 0.5,
+          minWidth: 'auto',
+          whiteSpace: 'nowrap',
+          textTransform: 'none',
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          borderRadius: 2,
+        }}
+      >
+        Manage Access
+      </Button>
+    </Box>
+  );
+}
+
+function AccessSummaryCard({
+  title,
+  description,
+  count,
+  color,
+  icon,
+}: {
+  title: string;
+  description: string;
+  count: number;
+  color: 'primary' | 'secondary' | 'success';
+  icon: React.ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        p: 1.5,
+        borderRadius: 2,
+        border: 1,
+        borderColor: 'divider',
+        bgcolor: 'background.default',
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.75 }}>
+        <Box sx={{ color: `${color}.main`, display: 'inline-flex' }}>
+          {icon}
+        </Box>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          {title}
+        </Typography>
+        <Chip
+          label={count}
+          size="small"
+          color={count > 0 ? color : 'default'}
+          variant="outlined"
+          sx={{ ml: 'auto' }}
+        />
+      </Stack>
+      <Typography variant="caption" color="text.secondary">
+        {description}
+      </Typography>
+    </Box>
+  );
+}
+
 function renderUserChips(
   users: AssignedUser[] | undefined,
   loading: boolean | undefined,
@@ -630,13 +799,14 @@ function renderUserChips(
       </Typography>
     );
   }
+
   return (
     <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-      {users.map(u => (
+      {users.map((user) => (
         <Chip
-          key={u.id}
-          avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{u.full_name?.[0] || u.username[0]}</Avatar>}
-          label={`${u.full_name || u.username} (${u.email})`}
+          key={user.id}
+          avatar={<Avatar sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{user.full_name?.[0] || user.username[0]}</Avatar>}
+          label={`${user.full_name || user.username} (${user.email})`}
           size="small"
           variant="outlined"
         />

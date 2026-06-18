@@ -8,6 +8,13 @@ from app.models.form import Form, FormFieldDefinition, FormAssignment, RequestNu
 from app.core.deps import get_current_user, require_permission
 from app.core.exceptions import NotFoundException, ConflictException
 from app.services.audit import log_event
+from app.services.form_assignments import (
+    APPROVER_ROLE,
+    REVIEWER_ROLE,
+    SUBMITTER_ROLE,
+    get_assigned_user_ids,
+    group_assignment_ids,
+)
 
 router = APIRouter()
 
@@ -49,8 +56,9 @@ async def list_forms(
     result = []
     for form in forms:
         submission_count = len(form.submissions) if form.submissions else 0
-        submitters_count = sum(1 for a in (form.assignments or []) if a.role == "submitter")
-        reviewers_count = sum(1 for a in (form.assignments or []) if a.role == "reviewer")
+        submitters_count = sum(1 for a in (form.assignments or []) if a.role == SUBMITTER_ROLE)
+        reviewers_count = sum(1 for a in (form.assignments or []) if a.role == REVIEWER_ROLE)
+        approvers_count = sum(1 for a in (form.assignments or []) if a.role == APPROVER_ROLE)
         result.append({
             "id": form.id,
             "form_code": form.form_code,
@@ -63,6 +71,7 @@ async def list_forms(
             "submission_count": submission_count,
             "submitters_count": submitters_count,
             "reviewers_count": reviewers_count,
+            "approvers_count": approvers_count,
             "created_at": form.created_at.isoformat() if form.created_at else None,
             "updated_at": form.updated_at.isoformat() if form.updated_at else None,
         })
@@ -199,44 +208,65 @@ async def toggle_form(form_id: int, request: Request, db: Session = Depends(get_
 @router.post("/{form_id}/assign", response_model=dict)
 async def assign_form(form_id: int, request: Request, db: Session = Depends(get_db),
                       current_user: User = Depends(get_current_user), _: None = Depends(require_permission("form.manage"))):
-    """Assign submitters and reviewers to a form. Full replacement."""
+    """Assign submitters, reviewers, and approvers to a form. Full replacement."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form: raise NotFoundException("Form not found")
 
     body = await request.json()
-    submitter_ids = body.get("submitters", [])
-    reviewer_ids = body.get("reviewers", [])
+    grouped_ids = group_assignment_ids(
+        submitters=body.get("submitters", []),
+        reviewers=body.get("reviewers", []),
+        approvers=body.get("approvers", []),
+    )
 
     # Full replacement: remove all existing assignments for this form
     db.query(FormAssignment).filter(FormAssignment.form_id == form_id).delete()
 
-    for uid in submitter_ids:
-        db.add(FormAssignment(form_id=form_id, user_id=uid, role="submitter", assigned_by=current_user.id))
-    for uid in reviewer_ids:
-        db.add(FormAssignment(form_id=form_id, user_id=uid, role="reviewer", assigned_by=current_user.id))
+    for role, user_ids in grouped_ids.items():
+        for uid in user_ids:
+            db.add(FormAssignment(form_id=form_id, user_id=uid, role=role, assigned_by=current_user.id))
 
     db.commit()
     await log_event(db=db, user=current_user, action="form.assigned", entity_type="form", entity_id=str(form.id),
-                    new_value={"submitters": submitter_ids, "reviewers": reviewer_ids}, request=request)
-    return {"success": True, "data": {"submitters_count": len(submitter_ids), "reviewers_count": len(reviewer_ids)}}
+                    new_value=grouped_ids, request=request)
+    return {
+        "success": True,
+        "data": {
+            "submitters_count": len(grouped_ids[SUBMITTER_ROLE]),
+            "reviewers_count": len(grouped_ids[REVIEWER_ROLE]),
+            "approvers_count": len(grouped_ids[APPROVER_ROLE]),
+        },
+    }
 
 
 @router.get("/{form_id}/assigned-users", response_model=dict)
 async def get_assigned_users(form_id: int, db: Session = Depends(get_db),
                              current_user: User = Depends(get_current_user), _: None = Depends(require_permission("form.manage"))):
-    """Get submitters and reviewers assigned to a form."""
+    """Get submitters, reviewers, and approvers assigned to a form."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form: raise NotFoundException("Form not found")
 
-    assignments = db.query(FormAssignment).filter(FormAssignment.form_id == form_id).all()
-    submitters = []
-    reviewers = []
-    for a in assignments:
-        u = db.query(User).filter(User.id == a.user_id).first()
-        if u:
-            entry = {"id": u.id, "username": u.username, "full_name": u.full_name, "email": u.email}
-            if a.role == "reviewer":
-                reviewers.append(entry)
-            else:
-                submitters.append(entry)
-    return {"success": True, "data": {"submitters": submitters, "reviewers": reviewers}}
+    def build_entries(role: str) -> list[dict]:
+        user_ids = get_assigned_user_ids(db, form_id=form_id, role=role)
+        users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+        user_map = {user.id: user for user in users}
+        entries = []
+        for user_id in user_ids:
+            user = user_map.get(user_id)
+            if user:
+                entries.append({
+                    "id": user.id,
+                    "username": user.username,
+                    "full_name": user.full_name,
+                    "email": user.email,
+                })
+        return entries
+
+    return {
+        "success": True,
+        "data": {
+            "submitters": build_entries(SUBMITTER_ROLE),
+            "reviewers": build_entries(REVIEWER_ROLE),
+            "approvers": build_entries(APPROVER_ROLE),
+        },
+    }

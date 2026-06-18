@@ -12,6 +12,7 @@ from app.core.security import get_password_hash
 from app.core.deps import get_current_user, require_permission
 from app.core.exceptions import NotFoundException, ConflictException
 from app.services.audit import log_event
+from app.services.form_assignments import APPROVER_ROLE, REVIEWER_ROLE, SUBMITTER_ROLE, normalize_assignment_role
 
 router = APIRouter()
 
@@ -62,11 +63,15 @@ async def list_users(
         assigned_form_count = db.query(FormAssignment).filter(FormAssignment.user_id == user.id).count()
         assigned_as_submitter = db.query(FormAssignment).filter(
             FormAssignment.user_id == user.id,
-            FormAssignment.role == "submitter"
+            FormAssignment.role == SUBMITTER_ROLE
         ).count()
         assigned_as_reviewer = db.query(FormAssignment).filter(
             FormAssignment.user_id == user.id,
-            FormAssignment.role == "reviewer"
+            FormAssignment.role == REVIEWER_ROLE
+        ).count()
+        assigned_as_approver = db.query(FormAssignment).filter(
+            FormAssignment.user_id == user.id,
+            FormAssignment.role == APPROVER_ROLE
         ).count()
 
         result.append({
@@ -81,6 +86,7 @@ async def list_users(
             "assigned_form_count": assigned_form_count,
             "assigned_as_submitter": assigned_as_submitter,
             "assigned_as_reviewer": assigned_as_reviewer,
+            "assigned_as_approver": assigned_as_approver,
         })
 
     return {
@@ -322,7 +328,7 @@ async def get_user_assigned_forms(
                 "form_code": form.form_code,
                 "name": form.name,
                 "is_active": form.is_active,
-                "role": a.role or "submitter",
+                "role": normalize_assignment_role(a.role),
                 "assigned_at": a.assigned_at.isoformat() if a.assigned_at else None,
             })
 
@@ -343,12 +349,12 @@ async def assign_forms_to_user(
         raise NotFoundException("User not found")
 
     body = await request.json()
-    # Support both formats: [{id, role}] or {form_ids: [...]}
+    # Support both formats: [{id, role}] or {form_ids: [...]}.
     if "forms" in body:
         form_entries = body["forms"]
     else:
         form_ids = body.get("form_ids", [])
-        form_entries = [{"id": fid, "role": "submitter"} for fid in form_ids]
+        form_entries = [{"id": fid, "role": SUBMITTER_ROLE} for fid in form_ids]
 
     # Remove existing assignments
     db.query(FormAssignment).filter(FormAssignment.user_id == user_id).delete()
@@ -356,7 +362,7 @@ async def assign_forms_to_user(
     # Add new assignments
     for entry in form_entries:
         fid = entry["id"] if isinstance(entry, dict) else entry
-        role = entry.get("role", "submitter") if isinstance(entry, dict) else "submitter"
+        role = normalize_assignment_role(entry.get("role", SUBMITTER_ROLE) if isinstance(entry, dict) else SUBMITTER_ROLE)
         form = db.query(Form).filter(Form.id == fid).first()
         if form:
             fa = FormAssignment(form_id=fid, user_id=user_id, role=role, assigned_by=current_user.id)
@@ -367,7 +373,7 @@ async def assign_forms_to_user(
     await log_event(
         db=db, user=current_user, action="user.forms_assigned",
         entity_type="user", entity_id=str(user.id),
-        new_value={"assignments": [{"form_id": e["id"] if isinstance(e, dict) else e, "role": e.get("role", "submitter") if isinstance(e, dict) else "submitter"} for e in form_entries]},
+        new_value={"assignments": [{"form_id": e["id"] if isinstance(e, dict) else e, "role": normalize_assignment_role(e.get("role", SUBMITTER_ROLE) if isinstance(e, dict) else SUBMITTER_ROLE)} for e in form_entries]},
         request=request,
     )
 

@@ -10,6 +10,7 @@ import PageHeader from '../../components/common/PageHeader';
 import EmptyState from '../../components/common/EmptyState';
 import FormInstructionsDialog from '../../components/common/FormInstructionsDialog';
 import { getFormComponent } from '../../forms/registry';
+import { parseApiDateTime } from '../../utils/dateTime';
 import type { Form, ApiResponse, PaginatedResponse, Submission } from '../../types';
 
 export default function MyFormsPage() {
@@ -49,7 +50,7 @@ export default function MyFormsPage() {
           (submission.form?.form_code || submission.form_code) === form.form_code
           && resumableStatuses.has(submission.status),
         )
-        .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0];
+        .sort((left, right) => (parseApiDateTime(right.updated_at)?.getTime() || 0) - (parseApiDateTime(left.updated_at)?.getTime() || 0))[0];
 
       if (existingSubmission) {
         navigate(`/submissions/${existingSubmission.id}/edit`);

@@ -5,19 +5,22 @@ import {
 } from '@mui/material';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { Visibility, Refresh, HourglassEmpty, CheckCircle, RateReview, AccessTime } from '@mui/icons-material';
-import { formatDistanceToNow } from 'date-fns';
 import { apiService } from '../../services/api';
 import PageHeader from '../../components/common/PageHeader';
 import StatusChip from '../../components/common/StatusChip';
 import LoadingSkeleton from '../../components/common/LoadingSkeleton';
 import EmptyState from '../../components/common/EmptyState';
 import RequestLifecycleGuide from '../../components/common/RequestLifecycleGuide';
+import { useAuth } from '../../contexts/AuthContext';
+import { formatLocalDateTime, formatRelativeDateTime } from '../../utils/dateTime';
+import { getDerivedSubmissionLabel } from '../../utils/requestLifecycle';
 import type { Submission, PaginatedResponse, ReviewerDashboardStats } from '../../types';
 
 const PAGE_SIZE = 10;
 
 export default function ReviewQueuePage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -25,6 +28,8 @@ export default function ReviewQueuePage() {
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<ReviewerDashboardStats | null>(null);
   const [activeTab, setActiveTab] = useState<'queue' | 'guide'>('queue');
+  const roleNames = user?.roles.map((role) => role.name) || [];
+  const isApproverOnly = roleNames.includes('Approver') && !roleNames.includes('Reviewer');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -80,9 +85,9 @@ export default function ReviewQueuePage() {
       header: 'Submitted',
       size: 150,
       Cell: ({ cell }) => (
-        <Tooltip title={cell.getValue<string>() ? new Date(cell.getValue<string>()).toLocaleString() : ''}>
+        <Tooltip title={formatLocalDateTime(cell.getValue<string>())}>
           <Typography variant="body2" color="text.secondary">
-            {cell.getValue<string>() ? formatDistanceToNow(new Date(cell.getValue<string>()), { addSuffix: true }) : '—'}
+            {formatRelativeDateTime(cell.getValue<string>())}
           </Typography>
         </Tooltip>
       ),
@@ -91,8 +96,11 @@ export default function ReviewQueuePage() {
       accessorKey: 'status',
       header: 'Status',
       size: 160,
-      Cell: ({ cell }) => (
-        <StatusChip status={cell.getValue<Submission['status']>()} />
+      Cell: ({ cell, row }) => (
+        <StatusChip
+          status={cell.getValue<Submission['status']>()}
+          labelOverride={getDerivedSubmissionLabel(cell.getValue<Submission['status']>(), !!row.original.current_assignee)}
+        />
       ),
     },
   ];
@@ -127,7 +135,7 @@ export default function ReviewQueuePage() {
       </Tooltip>
     ),
     renderRowActions: ({ row }) => (
-      <Tooltip title="Review">
+      <Tooltip title={isApproverOnly ? 'Open approval' : 'Open review'}>
         <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/reviews/${row.original.id}`); }}>
           <Visibility fontSize="small" />
         </IconButton>
@@ -151,7 +159,7 @@ export default function ReviewQueuePage() {
 
   const statCards = [
     { label: 'Pending', value: stats?.pending_reviews ?? '—', icon: <HourglassEmpty fontSize="large" color="warning" />, color: 'warning' },
-    { label: 'Under Review', value: '—', icon: <RateReview fontSize="large" color="info" />, color: 'info' },
+    { label: 'Checked Out', value: stats?.reviewed_this_week ?? '—', icon: <RateReview fontSize="large" color="info" />, color: 'info' },
     { label: 'Reviewed Today', value: stats?.reviewed_today ?? '—', icon: <CheckCircle fontSize="large" color="success" />, color: 'success' },
     { label: 'Avg Review Time', value: stats?.avg_review_time_hours ? `${stats.avg_review_time_hours}h` : '—', icon: <AccessTime fontSize="large" sx={{ color: 'grey.600' }} />, color: 'default' },
   ];
@@ -159,9 +167,9 @@ export default function ReviewQueuePage() {
   return (
     <Box>
       <PageHeader
-        title="Review Queue"
-        subtitle="Submissions awaiting your review"
-        breadcrumbs={[{ label: 'Review Queue' }]}
+        title={isApproverOnly ? 'Approval Queue' : 'Review Queue'}
+        subtitle={isApproverOnly ? 'Requests awaiting your approval action' : 'Requests awaiting your reviewer or approver action'}
+        breadcrumbs={[{ label: isApproverOnly ? 'Approval Queue' : 'Review Queue' }]}
         actions={
           <Tooltip title="Refresh">
             <IconButton onClick={fetchData} disabled={loading}>
@@ -173,14 +181,13 @@ export default function ReviewQueuePage() {
 
       <Box sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Tabs value={activeTab} onChange={(_, value) => setActiveTab(value)} sx={{ minHeight: 44 }}>
-          <Tab value="queue" label="Review Queue" sx={{ textTransform: 'none' }} />
+          <Tab value="queue" label={isApproverOnly ? 'Approval Queue' : 'Review Queue'} sx={{ textTransform: 'none' }} />
           <Tab value="guide" label="Lifecycle Guide" sx={{ textTransform: 'none' }} />
         </Tabs>
       </Box>
 
       {activeTab === 'guide' && <RequestLifecycleGuide context="reviewer" />}
 
-      {/* Stats */}
       {activeTab === 'queue' && <Grid container spacing={2} sx={{ mb: 3 }}>
         {statCards.map((card, idx) => (
           <Grid size={{ xs: 12, sm: 6, md: 3 }} key={idx}>
@@ -203,25 +210,21 @@ export default function ReviewQueuePage() {
         ))}
       </Grid>}
 
-      {/* Error */}
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} action={<Button size="small" onClick={fetchData}>Retry</Button>}>
           {error}
         </Alert>
       )}
 
-      {/* Loading */}
       {activeTab === 'queue' && loading && !error && <LoadingSkeleton variant="table" rows={8} />}
 
-      {/* Empty */}
       {activeTab === 'queue' && !loading && !error && submissions.length === 0 && (
         <EmptyState
-          title="No pending reviews"
-          description="There are no submissions waiting for your review at this time."
+          title={isApproverOnly ? 'No pending approvals' : 'No pending reviews'}
+          description={isApproverOnly ? 'There are no submissions waiting for your approval at this time.' : 'There are no submissions waiting for your review at this time.'}
         />
       )}
 
-      {/* Table */}
       {activeTab === 'queue' && !loading && !error && submissions.length > 0 && (
         <MaterialReactTable table={table} />
       )}

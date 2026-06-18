@@ -11,6 +11,7 @@ export interface User {
   assigned_form_count?: number;
   assigned_as_submitter?: number;
   assigned_as_reviewer?: number;
+  assigned_as_approver?: number;
   assigned_forms?: AssignedForm[];
 }
 
@@ -87,6 +88,7 @@ export interface Form {
   submission_count?: number;
   submitters_count?: number;
   reviewers_count?: number;
+  approvers_count?: number;
 }
 
 // ============= Submissions =============
@@ -94,7 +96,7 @@ export type SubmissionStatus = 'draft' | 'submitted' | 'under_review' | 'approve
 
 export type CommentType = 'general' | 'review' | 'correction_request';
 
-export type WorkflowActionType = 'submit' | 'approve' | 'reject' | 'request_changes' | 'resubmit';
+export type WorkflowActionType = 'submit' | 'start_review' | 'approve' | 'reject' | 'request_changes' | 'resubmit';
 
 export interface Submission {
   id: number;
@@ -116,6 +118,9 @@ export interface Submission {
   form_code?: string;
   submitted_by?: string;
   submitter_name?: string;
+  is_checked_out_by_me?: boolean;
+  last_action?: WorkflowActionType | 'reject' | 'request_changes' | 'approve' | null;
+  handled_at?: string | null;
   current_version?: SubmissionVersion;
   versions?: SubmissionVersion[];
   comments?: SubmissionComment[];

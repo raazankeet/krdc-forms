@@ -12,8 +12,29 @@ from app.core.deps import get_current_user
 from app.core.exceptions import NotFoundException, WorkflowException
 from app.services.numbering import build_draft_request_number, generate_request_number
 from app.services.audit import log_event
+from app.services.form_assignments import APPROVER_ROLE, REVIEWER_ROLE, SUBMITTER_ROLE, has_assignment_role
 
 router = APIRouter()
+
+
+def _role_names(user: User) -> set[str]:
+    return {user_role.role.name for user_role in user.user_roles}
+
+
+def _is_admin_only_user(user: User) -> bool:
+    role_names = _role_names(user)
+    return "Administrator" in role_names and not ({"Reviewer", "Approver", "Research User"} & role_names)
+
+
+def _can_access_submission(db: Session, *, submission: Submission, user: User) -> bool:
+    if submission.user_id == user.id:
+        return True
+    if "Administrator" in _role_names(user):
+        return True
+    return (
+        has_assignment_role(db, form_id=submission.form_id, user_id=user.id, role=REVIEWER_ROLE)
+        or has_assignment_role(db, form_id=submission.form_id, user_id=user.id, role=APPROVER_ROLE)
+    )
 
 
 def _has_meaningful_data(version: SubmissionVersion | None) -> bool:
@@ -96,6 +117,7 @@ async def list_submissions(
     for s in submissions:
         form = db.query(Form).filter(Form.id == s.form_id).first()
         user = db.query(User).filter(User.id == s.user_id).first()
+        assignee = db.query(User).filter(User.id == s.current_assignee).first() if s.current_assignee else None
         result.append({
             "id": s.id,
             "request_number": s.request_number,
@@ -111,6 +133,10 @@ async def list_submissions(
                 "email": user.email,
             } if user else None,
             "status": s.status.value if hasattr(s.status, 'value') else s.status,
+            "current_assignee": {
+                "id": assignee.id,
+                "full_name": assignee.full_name,
+            } if assignee else None,
             "version_number": s.version_number,
             "submitted_at": s.submitted_at.isoformat() if s.submitted_at else None,
             "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -138,6 +164,10 @@ async def create_submission(
     form = db.query(Form).filter(Form.id == form_id, Form.is_active == True).first()
     if not form:
         raise NotFoundException("Form not found or inactive")
+    if _is_admin_only_user(current_user):
+        raise WorkflowException("Administrators cannot create submissions")
+    if not has_assignment_role(db, form_id=form_id, user_id=current_user.id, role=SUBMITTER_ROLE):
+        raise WorkflowException("You are not assigned as a submitter for this form")
 
     submission = Submission(
         request_number="DRAFT-PENDING",
@@ -177,6 +207,8 @@ async def get_submission(
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if not submission:
         raise NotFoundException("Submission not found")
+    if not _can_access_submission(db, submission=submission, user=current_user):
+        raise WorkflowException("You do not have access to this submission")
 
     form = db.query(Form).filter(Form.id == submission.form_id).first()
     sub_user = db.query(User).filter(User.id == submission.user_id).first()
@@ -265,9 +297,9 @@ async def update_submission(
         raise WorkflowException("Only draft or returned submissions can be edited")
 
     if submission.user_id != current_user.id:
-        is_admin = any(ur.role.name == "Administrator" for ur in current_user.user_roles)
-        if not is_admin:
-            raise WorkflowException("You can only edit your own submissions")
+        raise WorkflowException("You can only edit your own submissions")
+    if _is_admin_only_user(current_user):
+        raise WorkflowException("Administrators cannot edit submissions")
 
     body = await request.json()
     new_data = body.get("data", {})
@@ -302,6 +334,10 @@ async def delete_submission(
         raise NotFoundException("Submission not found")
     if submission.status != SubmissionStatus.DRAFT:
         raise WorkflowException("Only draft submissions can be deleted")
+    if submission.user_id != current_user.id:
+        raise WorkflowException("You can only delete your own draft submissions")
+    if _is_admin_only_user(current_user):
+        raise WorkflowException("Administrators cannot delete submissions")
 
     db.delete(submission)
     db.commit()

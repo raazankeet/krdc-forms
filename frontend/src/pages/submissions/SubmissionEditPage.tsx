@@ -58,10 +58,10 @@ export default function SubmissionEditPage() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ state: 'idle' });
   const [submitting, setSubmitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [newFormCode, setNewFormCode] = useState<string>('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
+  const [availableFormCount, setAvailableFormCount] = useState(0);
   const [issueDialog, setIssueDialog] = useState<{ open: boolean; title: string; message: string }>({
     open: false,
     title: 'Submission Issue',
@@ -82,76 +82,85 @@ export default function SubmissionEditPage() {
     setIssueDialog({ open: true, title, message });
   }, []);
 
-  // ============== Load data ==============
+  const createDraftForForm = useCallback(async (resolvedFormCode: string) => {
+    if (autoDraftInitialized.current) {
+      return;
+    }
+
+    autoDraftInitialized.current = true;
+    const formComp = getFormComponent(resolvedFormCode);
+    if (!formComp) {
+      setError(`Unknown form type: ${resolvedFormCode}`);
+      return;
+    }
+
+    setFormCode(resolvedFormCode);
+    const initialFormData = normalizeLoadedFormData(resolvedFormCode, formComp.initialData());
+    setFormData(initialFormData);
+    liveFormDataRef.current = initialFormData;
+
+    const formsRes = await apiService.get<ApiResponse<Array<{ id: number; form_code: string }>>>('/api/v1/forms');
+    const matchedForm = formsRes.data?.find((form) => form.form_code === resolvedFormCode);
+    if (!matchedForm) {
+      setError('This form is not available or has been deactivated.');
+      return;
+    }
+
+    const res = await apiService.post<ApiResponse<Submission>>('/api/v1/submissions', {
+      form_id: matchedForm.id,
+    });
+    currentSubmissionId.current = res.data.id;
+    setSubmission(res.data);
+  }, []);
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       setError('');
       try {
         if (isNew) {
-          // If form_code provided via URL (from My Forms catalog), auto-create draft
-          if (formCodeFromUrl) {
-            if (autoDraftInitialized.current) {
-              setLoading(false);
-              return;
-            }
-            autoDraftInitialized.current = true;
-            const formComp = getFormComponent(formCodeFromUrl);
-            if (!formComp) {
-              setError(`Unknown form type: ${formCodeFromUrl}`);
-              setLoading(false);
-              return;
-            }
-            setNewFormCode(formCodeFromUrl);
-            setFormCode(formCodeFromUrl);
-            const initialFormData = normalizeLoadedFormData(formCodeFromUrl, formComp.initialData());
-            setFormData(initialFormData);
-            liveFormDataRef.current = initialFormData;
+          let resolvedFormCode = formCodeFromUrl;
 
-            // Resolve form_code → form_id and create draft
-            try {
-              const formsRes = await apiService.get<ApiResponse<{ id: number; form_code: string }[]>>('/api/v1/forms');
-              const matchedForm = formsRes.data?.find((f) => f.form_code === formCodeFromUrl);
-              if (!matchedForm) {
-                setError('This form is not available or has been deactivated.');
-                setLoading(false);
-                return;
-              }
-              const res = await apiService.post<ApiResponse<Submission>>('/api/v1/submissions', {
-                form_id: matchedForm.id,
-              });
-              currentSubmissionId.current = res.data.id;
-              setSubmission(res.data);
-            } catch (err: unknown) {
-              const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
-              setError(axiosErr?.response?.data?.error?.message || 'Failed to create draft.');
+          if (!resolvedFormCode) {
+            const formsRes = await apiService.get<ApiResponse<Array<{ id: number; form_code: string; is_active?: boolean }>>>('/api/v1/forms');
+            const availableForms = (formsRes.data || []).filter((form) => form.is_active !== false);
+            setAvailableFormCount(availableForms.length);
+
+            if (availableForms.length === 1) {
+              resolvedFormCode = availableForms[0].form_code;
+            } else if (availableForms.length > 1) {
+              navigate('/my-forms', { replace: true });
+              return;
+            } else {
+              return;
             }
-            setLoading(false);
-            return;
+          } else {
+            setAvailableFormCount(1);
           }
-          // No form_code in URL — show form selector
-          setLoading(false);
-        } else {
-          const res = await apiService.get<ApiResponse<Submission>>(`/api/v1/submissions/${id}`);
-          const sub = res.data;
-          const resolvedFormCode = sub.form?.form_code || '';
-          setSubmission(sub);
-          setFormCode(resolvedFormCode);
-          currentSubmissionId.current = sub.id;
-          const formComp = resolvedFormCode ? getFormComponent(resolvedFormCode) : undefined;
-          if (formComp) {
-            const normalizedData = normalizeLoadedFormData(
-              resolvedFormCode,
-              formComp.initialData(),
-              sub.current_version?.data as FormData | undefined,
-            );
-            setFormData(normalizedData);
-            liveFormDataRef.current = normalizedData;
-          } else if (sub.current_version?.data) {
-            const loadedData = sub.current_version.data as FormData;
-            setFormData(loadedData);
-            liveFormDataRef.current = loadedData;
-          }
+
+          await createDraftForForm(resolvedFormCode);
+          return;
+        }
+
+        const res = await apiService.get<ApiResponse<Submission>>(`/api/v1/submissions/${id}`);
+        const sub = res.data;
+        const resolvedFormCode = sub.form?.form_code || '';
+        setSubmission(sub);
+        setFormCode(resolvedFormCode);
+        currentSubmissionId.current = sub.id;
+        const resolvedFormComponent = resolvedFormCode ? getFormComponent(resolvedFormCode) : undefined;
+        if (resolvedFormComponent) {
+          const normalizedData = normalizeLoadedFormData(
+            resolvedFormCode,
+            resolvedFormComponent.initialData(),
+            sub.current_version?.data as FormData | undefined,
+          );
+          setFormData(normalizedData);
+          liveFormDataRef.current = normalizedData;
+        } else if (sub.current_version?.data) {
+          const loadedData = sub.current_version.data as FormData;
+          setFormData(loadedData);
+          liveFormDataRef.current = loadedData;
         }
       } catch (err: unknown) {
         const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
@@ -160,10 +169,10 @@ export default function SubmissionEditPage() {
         setLoading(false);
       }
     };
-    load();
-  }, [id, isNew, formCodeFromUrl]);
 
-  // ============== Save ==============
+    load();
+  }, [createDraftForForm, formCodeFromUrl, id, isNew, navigate]);
+
   const doSave = useCallback(async (data: FormData) => {
     if (!currentSubmissionId.current) return;
     setSaveStatus({ state: 'saving' });
@@ -195,7 +204,6 @@ export default function SubmissionEditPage() {
     setTouched((prev) => new Set(prev).add(field));
   }, [validationActive]);
 
-  // ============== Validation ==============
   const runValidation = useCallback(() => {
     if (!formComponent) return [];
     setValidationActive(true);
@@ -224,44 +232,6 @@ export default function SubmissionEditPage() {
     };
   }, [validationActive, formComponent, formData, getLatestFormData]);
 
-  // ============== Create draft ==============
-  const handleCreateDraft = async () => {
-    if (!newFormCode) {
-      openIssueDialog('Please select a form type.', 'Form Selection Required');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      // Resolve form_code to form_id (PK) before calling the API
-      const formsRes = await apiService.get<ApiResponse<{ id: number; form_code: string }[]>>('/api/v1/forms');
-      const matchedForm = formsRes.data?.find((f) => f.form_code === newFormCode);
-      if (!matchedForm) {
-        openIssueDialog('Form not found or inactive.');
-        return;
-      }
-
-      const res = await apiService.post<ApiResponse<Submission>>('/api/v1/submissions', {
-        form_id: matchedForm.id,
-      });
-      currentSubmissionId.current = res.data.id;
-      setSubmission(res.data);
-      const normalizedData = normalizeLoadedFormData(
-        newFormCode,
-        formComponent?.initialData() || {},
-        res.data.current_version?.data as FormData | undefined,
-      );
-      setFormData(normalizedData);
-      liveFormDataRef.current = normalizedData;
-      enqueueSnackbar('Draft created.', { variant: 'success' });
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
-      openIssueDialog(axiosErr?.response?.data?.error?.message || 'Failed to create draft.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ============== Submit ==============
   const handleSubmitClick = () => {
     const errors = runValidation();
     if (errors.length > 0) {
@@ -312,7 +282,6 @@ export default function SubmissionEditPage() {
     }
   };
 
-  // ============== Unsaved changes warning ==============
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges.current) {
@@ -323,7 +292,6 @@ export default function SubmissionEditPage() {
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
 
-  // ============== Loading ==============
   if (loading) {
     return (
       <Box>
@@ -333,7 +301,6 @@ export default function SubmissionEditPage() {
     );
   }
 
-  // ============== Error ==============
   if (error) {
     return (
       <Box>
@@ -344,7 +311,6 @@ export default function SubmissionEditPage() {
     );
   }
 
-  // ============== New submission - form type selector ==============
   if (isNew && !submission) {
     return (
       <Box>
@@ -352,46 +318,18 @@ export default function SubmissionEditPage() {
           title="New Submission"
           breadcrumbs={[{ label: 'Submissions', href: '/submissions' }, { label: 'New' }]}
         />
-        <Paper sx={{ p: 4, borderRadius: 3, maxWidth: 500 }}>
-          <Typography variant="h6" sx={{ mb: 3 }}>Select Form Type</Typography>
-          {['MPAI'].map((code) => {
-            const form = getFormComponent(code);
-            if (!form) return null;
-            return (
-              <Button
-                key={code}
-                fullWidth
-                variant={newFormCode === code ? 'contained' : 'outlined'}
-                onClick={() => {
-                  setNewFormCode(code);
-                  setFormCode(code);
-                  setFormData(form.initialData());
-                }}
-                sx={{ mb: 1.5, py: 1.5, justifyContent: 'flex-start', textAlign: 'left' }}
-              >
-                <Box>
-                  <Typography variant="subtitle2">{form.metadata.name}</Typography>
-                  <Typography variant="caption" color="text.secondary">{form.metadata.description}</Typography>
-                </Box>
-              </Button>
-            );
-          })}
-          <Button
-            fullWidth
-            variant="contained"
-            disabled={!newFormCode || submitting}
-            onClick={handleCreateDraft}
-            sx={{ mt: 2, py: 1.5 }}
-            startIcon={submitting ? <CircularProgress size={20} /> : <Save />}
-          >
-            Create Draft
-          </Button>
-        </Paper>
+        <EmptyState
+          title={availableFormCount === 0 ? 'No forms assigned' : 'Open from My Forms'}
+          description={availableFormCount === 0
+            ? 'You do not currently have any active form assigned for submission.'
+            : 'Start a submission from My Forms. The old generic form picker has been removed.'}
+          actionLabel="Go To My Forms"
+          onAction={() => navigate('/my-forms')}
+        />
       </Box>
     );
   }
 
-  // ============== No form component ==============
   if (!formComponent) {
     return (
       <Box>
@@ -401,7 +339,6 @@ export default function SubmissionEditPage() {
     );
   }
 
-  // ============== Edit mode ==============
   const FormEdit = formComponent.FormEdit;
   const fieldErrors = validationErrors.filter((e) => e.field !== '_form');
   const formWideErrors = validationErrors.filter((e) => e.field === '_form');
@@ -415,23 +352,24 @@ export default function SubmissionEditPage() {
           { label: 'Submissions', href: '/submissions' },
           { label: submission?.request_number || 'New' },
         ]}
-        actions={
+        actions={(
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <Tooltip title="View form instructions">
               <IconButton onClick={() => setInstructionsOpen(true)}>
                 <InfoOutlined />
               </IconButton>
             </Tooltip>
-            {/* Save status indicator */}
             {saveStatus.state !== 'idle' && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 {saveStatus.state === 'saving' && <CircularProgress size={14} />}
                 {saveStatus.state === 'saved' && <Check fontSize="small" color="success" />}
                 {saveStatus.state === 'error' && <ErrorOutlined fontSize="small" color="error" />}
                 <Typography variant="caption" color={saveStatus.state === 'error' ? 'error' : 'text.secondary'}>
-                  {saveStatus.state === 'saving' ? 'Saving...' :
-                   saveStatus.state === 'saved' ? `Saved at ${saveStatus.time}` :
-                   'Save failed'}
+                  {saveStatus.state === 'saving'
+                    ? 'Saving...'
+                    : saveStatus.state === 'saved'
+                      ? `Saved at ${saveStatus.time}`
+                      : 'Save failed'}
                 </Typography>
               </Box>
             )}
@@ -452,10 +390,9 @@ export default function SubmissionEditPage() {
               {isResubmission ? 'Resubmit for Review' : 'Submit for Review'}
             </Button>
           </Box>
-        }
+        )}
       />
 
-      {/* Cross-field errors */}
       {formWideErrors.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           {formWideErrors.map((e, i) => (
@@ -464,7 +401,6 @@ export default function SubmissionEditPage() {
         </Alert>
       )}
 
-      {/* Field-level error summary */}
       {fieldErrors.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
@@ -472,13 +408,12 @@ export default function SubmissionEditPage() {
           </Typography>
           {fieldErrors.map((e) => (
             <Typography key={e.field} variant="body2">
-              • {e.message}
+              - {e.message}
             </Typography>
           ))}
         </Alert>
       )}
 
-      {/* Form */}
       <Paper sx={{ p: 3, borderRadius: 3 }}>
         <FormEdit
           data={formData}
@@ -490,14 +425,13 @@ export default function SubmissionEditPage() {
         />
       </Paper>
 
-      {/* Confirmation Dialog */}
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{isResubmission ? 'Resubmit for Review' : 'Submit for Review'}</DialogTitle>
         <DialogContent>
           <DialogContentText>
             {isResubmission
               ? 'Are you sure you want to resubmit this form for review? You will not be able to edit it again unless more changes are requested.'
-              : 'Are you sure you want to submit this form for review? You won\'t be able to edit it after submission.'}
+              : 'Are you sure you want to submit this form for review? You will not be able to edit it after submission.'}
           </DialogContentText>
           <Box sx={{ mt: 1, p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
             <Typography variant="caption" color="text.secondary">Form: {formComponent.metadata.name}</Typography>
