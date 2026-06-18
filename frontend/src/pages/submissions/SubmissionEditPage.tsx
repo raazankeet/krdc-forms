@@ -75,7 +75,7 @@ export default function SubmissionEditPage() {
   const liveFormDataRef = useRef<FormData>({});
 
   const formComponent = useMemo(() => (formCode ? getFormComponent(formCode) : undefined), [formCode]);
-  const isResubmission = submission?.status === 'needs_correction' || submission?.status === 'rejected';
+  const isResubmission = submission?.status === 'needs_correction';
   const getLatestFormData = useCallback(() => liveFormDataRef.current, []);
 
   const openIssueDialog = useCallback((message: string, title = 'Submission Issue') => {

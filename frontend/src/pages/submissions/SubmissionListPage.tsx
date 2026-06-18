@@ -55,11 +55,16 @@ function getStatusSummary(status: Submission['status'], hasAssignee: boolean) {
           nextAction: 'Monitor comments and history. Editing stays locked while approval is in progress.',
         };
     case 'needs_correction':
-    case 'rejected':
       return {
         stage: 'Returned To Submitter',
         detail: 'The review team sent this request back. Open it, read the feedback, make corrections, and resubmit it.',
         nextAction: 'Open the request in edit mode, apply the requested changes, and resubmit.',
+      };
+    case 'rejected':
+      return {
+        stage: 'Rejected',
+        detail: 'The approver rejected this request and closed the workflow.',
+        nextAction: 'No further action is available. Review the history and comments for the rejection reason.',
       };
     case 'approved':
       return {
@@ -250,8 +255,7 @@ export default function SubmissionListPage() {
       const submission = row.original;
       const statusSummary = getStatusSummary(submission.status, !!submission.current_assignee);
       const canEdit = submission.status === 'draft'
-        || submission.status === 'needs_correction'
-        || submission.status === 'rejected';
+        || submission.status === 'needs_correction';
 
       return (
         <Box
@@ -351,7 +355,7 @@ export default function SubmissionListPage() {
             <Visibility fontSize="small" />
           </IconButton>
         </Tooltip>
-        {(row.original.status === 'draft' || row.original.status === 'needs_correction' || row.original.status === 'rejected') && (
+        {(row.original.status === 'draft' || row.original.status === 'needs_correction') && (
           <Tooltip title="Edit">
             <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(`/submissions/${row.original.id}/edit`); }}>
               <Edit fontSize="small" />

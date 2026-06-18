@@ -122,7 +122,7 @@ export default function SubmissionDetailPage() {
     );
   }
 
-  const canEdit = submission.status === 'draft' || submission.status === 'needs_correction' || submission.status === 'rejected';
+  const canEdit = submission.status === 'draft' || submission.status === 'needs_correction';
   const canPrint = submission.status === 'approved';
   const originPath = location.state?.originPath === '/requests' ? '/requests' : '/submissions';
   const originLabel = location.state?.originLabel === 'Request Management' ? 'Request Management' : 'Submissions';

@@ -94,9 +94,9 @@ export function buildLifecycleSteps(status: SubmissionStatus, hasAssignee: boole
 
   return [
     { key: 'draft', label: 'Draft', state: 'completed' },
-    { key: 'submitted', label: 'Needs Correction', state: 'active' },
-    { key: 'review', label: 'Review Again', state: 'upcoming' },
-    { key: 'approval', label: 'Approval Pending', state: 'upcoming' },
+    { key: 'submitted', label: status === 'rejected' ? 'Rejected' : 'Needs Correction', state: 'active' },
+    { key: 'review', label: status === 'rejected' ? 'Workflow Closed' : 'Review Again', state: 'upcoming' },
+    { key: 'approval', label: status === 'rejected' ? 'No Further Action' : 'Approval Pending', state: 'upcoming' },
     { key: 'approved', label: 'Approved', state: 'upcoming' },
   ];
 }

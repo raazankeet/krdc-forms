@@ -8,17 +8,14 @@ VALID_TRANSITIONS = {
     SubmissionStatus.SUBMITTED: {
         WorkflowActionType.APPROVE: SubmissionStatus.UNDER_REVIEW,
         WorkflowActionType.REQUEST_CHANGES: SubmissionStatus.NEEDS_CORRECTION,
-        WorkflowActionType.REJECT: SubmissionStatus.NEEDS_CORRECTION,
+        WorkflowActionType.REJECT: SubmissionStatus.REJECTED,
     },
     SubmissionStatus.UNDER_REVIEW: {
         WorkflowActionType.APPROVE: SubmissionStatus.APPROVED,
-        WorkflowActionType.REJECT: SubmissionStatus.NEEDS_CORRECTION,
+        WorkflowActionType.REJECT: SubmissionStatus.REJECTED,
         WorkflowActionType.REQUEST_CHANGES: SubmissionStatus.NEEDS_CORRECTION,
     },
     SubmissionStatus.NEEDS_CORRECTION: {
-        WorkflowActionType.RESUBMIT: SubmissionStatus.SUBMITTED,
-    },
-    SubmissionStatus.REJECTED: {
         WorkflowActionType.RESUBMIT: SubmissionStatus.SUBMITTED,
     },
 }

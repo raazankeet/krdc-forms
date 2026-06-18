@@ -332,14 +332,14 @@ async def reject_submission(
 
     from_status = submission.status
     validate_transition(from_status, WorkflowActionType.REJECT)
-    new_status = SubmissionStatus.NEEDS_CORRECTION
+    new_status = SubmissionStatus.REJECTED
     submission.status = new_status
     submission.current_assignee = None
 
     # Add rejection comment
     comment = SubmissionComment(
         submission_id=submission.id, user_id=current_user.id,
-        comment=body.comment, comment_type=CommentType.CORRECTION_REQUEST,
+        comment=body.comment, comment_type=CommentType.REVIEW,
     )
     db.add(comment)
 
@@ -354,7 +354,7 @@ async def reject_submission(
 
     await log_event(db=db, user=current_user, action="submission.rejected", entity_type="submission",
                     entity_id=str(submission.id), request=request)
-    return {"success": True, "data": {"status": "needs_correction"}}
+    return {"success": True, "data": {"status": "rejected"}}
 
 
 @router.post("/submissions/{submission_id}/workflow/request-changes", response_model=dict)

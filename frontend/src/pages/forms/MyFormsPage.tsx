@@ -10,8 +10,7 @@ import PageHeader from '../../components/common/PageHeader';
 import EmptyState from '../../components/common/EmptyState';
 import FormInstructionsDialog from '../../components/common/FormInstructionsDialog';
 import { getFormComponent } from '../../forms/registry';
-import { parseApiDateTime } from '../../utils/dateTime';
-import type { Form, ApiResponse, PaginatedResponse, Submission } from '../../types';
+import type { Form, ApiResponse } from '../../types';
 
 export default function MyFormsPage() {
   const navigate = useNavigate();
@@ -38,28 +37,7 @@ export default function MyFormsPage() {
     fetchForms();
   }, [fetchForms]);
 
-  const handleFillForm = useCallback(async (form: Form) => {
-    try {
-      const res = await apiService.get<PaginatedResponse<Submission>>('/api/v1/submissions', {
-        page: 1,
-        page_size: 100,
-      });
-      const resumableStatuses = new Set(['draft', 'needs_correction', 'rejected']);
-      const existingSubmission = (res.data || [])
-        .filter((submission) =>
-          (submission.form?.form_code || submission.form_code) === form.form_code
-          && resumableStatuses.has(submission.status),
-        )
-        .sort((left, right) => (parseApiDateTime(right.updated_at)?.getTime() || 0) - (parseApiDateTime(left.updated_at)?.getTime() || 0))[0];
-
-      if (existingSubmission) {
-        navigate(`/submissions/${existingSubmission.id}/edit`);
-        return;
-      }
-    } catch {
-      // Fall back to creating a new draft if lookup fails.
-    }
-
+  const handleFillForm = useCallback((form: Form) => {
     navigate(`/submissions/new?form_code=${encodeURIComponent(form.form_code)}`);
   }, [navigate]);
 

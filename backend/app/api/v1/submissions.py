@@ -293,7 +293,7 @@ async def update_submission(
     if not submission:
         raise NotFoundException("Submission not found")
 
-    if submission.status not in [SubmissionStatus.DRAFT, SubmissionStatus.NEEDS_CORRECTION, SubmissionStatus.REJECTED]:
+    if submission.status not in [SubmissionStatus.DRAFT, SubmissionStatus.NEEDS_CORRECTION]:
         raise WorkflowException("Only draft or returned submissions can be edited")
 
     if submission.user_id != current_user.id:

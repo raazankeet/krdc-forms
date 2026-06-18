@@ -78,6 +78,17 @@ export default function ReviewDetailPage() {
     fetchSubmission();
   }, [fetchSubmission]);
 
+  const getWorkflowEndpoint = useCallback((action: string) => {
+    switch (action) {
+      case 'start-review':
+        return 'start-review';
+      case 'request_changes':
+        return 'request-changes';
+      default:
+        return action;
+    }
+  }, []);
+
   const handleWorkflowAction = async (action: string) => {
     if ((action === 'reject' || action === 'request_changes') && !commentText.trim()) {
       enqueueSnackbar('A comment is required for this action.', { variant: 'warning' });
@@ -86,7 +97,7 @@ export default function ReviewDetailPage() {
 
     setActionLoading(action);
     try {
-      await apiService.post(`/api/v1/submissions/${id}/workflow/${action}`, {
+      await apiService.post(`/api/v1/submissions/${id}/workflow/${getWorkflowEndpoint(action)}`, {
         comment: commentText || undefined,
       });
 

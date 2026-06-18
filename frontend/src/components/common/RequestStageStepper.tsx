@@ -9,8 +9,12 @@ const INACTIVE_FILL = '#e0e0e0';
 const INACTIVE_BORDER = '#9e9e9e';
 
 function getHelperText(status: SubmissionStatus) {
-  if (status === 'needs_correction' || status === 'rejected') {
+  if (status === 'needs_correction') {
     return 'Returned to the submitter for correction before the workflow can continue.';
+  }
+
+  if (status === 'rejected') {
+    return 'This request was rejected and the workflow is now closed.';
   }
 
   return null;
