@@ -64,6 +64,17 @@ app.add_middleware(
 )
 
 
+def _cors_headers(request: Request) -> dict:
+    """Derive CORS headers from the incoming Origin so error responses are not blocked."""
+    origin = request.headers.get("origin")
+    if origin and origin in settings.CORS_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
+
 # Global exception handler
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
@@ -77,6 +88,7 @@ async def app_exception_handler(request: Request, exc: AppException):
                 "detail": exc.detail,
             },
         },
+        headers=_cors_headers(request),
     )
 
 
@@ -92,6 +104,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
                 "detail": {},
             },
         },
+        headers=_cors_headers(request),
     )
 
 
