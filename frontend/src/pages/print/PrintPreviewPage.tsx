@@ -154,7 +154,7 @@ export default function PrintPreviewPage() {
     ? {
         ...baseFormData,
         calculated_by: printData.submitted_by || baseFormData.calculated_by || '',
-        checked_by: getApproverByName(submission) || baseFormData.checked_by || '',
+        checked_by: getReviewerByName(submission) || baseFormData.checked_by || '',
       }
     : baseFormData;
   const reviewerName = getReviewerByName(submission) || '-';
