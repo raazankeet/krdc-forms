@@ -19,8 +19,20 @@ async def lifespan(app: FastAPI):
     print(f"[startup] DEBUG={settings.DEBUG}")
     print(f"[startup] DATABASE_TARGET={describe_database_target(settings.DATABASE_URL)}")
 
-    # Startup: create tables (for development; use Alembic in production)
-    Base.metadata.create_all(bind=engine)
+    # Startup: auto-run Alembic migrations on every deploy
+    try:
+        import alembic.config
+        import alembic.command
+        from pathlib import Path
+        backend_dir = Path(__file__).resolve().parent.parent
+        alembic_cfg = alembic.config.Config(str(backend_dir / "alembic.ini"))
+        alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+        alembic.command.upgrade(alembic_cfg, "head")
+        print("[startup] Alembic migrations applied")
+    except Exception as e:
+        print(f"[startup] Alembic migration failed, falling back to create_all: {e}")
+        Base.metadata.create_all(bind=engine)
+
     ensure_schema_compatibility()
 
     # Auto-seed database if empty (first deploy)
