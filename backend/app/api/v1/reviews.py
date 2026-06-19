@@ -89,7 +89,6 @@ async def pending_reviews(
             (Submission.current_assignee.is_(None))
             | (Submission.current_assignee == current_user.id)
         )
-        .distinct()
     )
 
     total = query.count()
@@ -193,7 +192,6 @@ async def my_reviews(
             (Submission.current_assignee == current_user.id)
             | (Submission.current_assignee.is_(None))
         )
-        .distinct()
     )
     total = query.count()
     total_pages = math.ceil(total / page_size) if total > 0 else 0
