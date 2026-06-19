@@ -33,19 +33,36 @@ export default function EmptyState({
         ...sx,
       }}
     >
-      <Box sx={{ color: 'text.disabled', mb: 2 }}>{icon}</Box>
-      <Typography variant="h6" color="text.secondary" gutterBottom>
+      <Box
+        className="anim-float"
+        sx={{ color: 'text.disabled', mb: 2 }}
+      >
+        {icon}
+      </Box>
+      <Typography
+        variant="h6"
+        color="text.secondary"
+        gutterBottom
+        className="anim-fadeInUp"
+      >
         {title}
       </Typography>
       {description && (
-        <Typography variant="body2" color="text.disabled" sx={{ maxWidth: 400, mb: 3 }}>
+        <Typography
+          variant="body2"
+          color="text.disabled"
+          className="anim-fadeInUp-d1"
+          sx={{ maxWidth: 400, mb: 3 }}
+        >
           {description}
         </Typography>
       )}
       {actionLabel && onAction && (
-        <Button variant="contained" onClick={onAction}>
-          {actionLabel}
-        </Button>
+        <Box className="anim-fadeInUp-d2">
+          <Button variant="contained" onClick={onAction}>
+            {actionLabel}
+          </Button>
+        </Box>
       )}
     </Box>
   );

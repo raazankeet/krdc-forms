@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app.db.base import get_db
 from app.models.user import User
 from app.models.submission import Submission, SubmissionStatus, WorkflowAction, WorkflowActionType
 from app.models.form import FormAssignment
 from app.core.deps import get_current_user
+from app.core.config import settings
 from app.services.form_assignments import APPROVER_ROLE, REVIEWER_ROLE
 
 router = APIRouter()
@@ -59,6 +60,14 @@ async def admin_dashboard(
     forms = db.query(Form).all()
     submissions_by_form = [{"form_name": f.name, "count": len(f.submissions) if f.submissions else 0} for f in forms]
 
+    # Role distribution
+    from app.models.user import Role
+    roles = db.query(Role).all()
+    role_distribution = [
+        {"role_name": role.name, "count": len(role.user_roles) if role.user_roles else 0}
+        for role in roles
+    ]
+
     return {"success": True, "data": {
         "active_users": active_users,
         "total_forms": total_forms,
@@ -67,6 +76,15 @@ async def admin_dashboard(
         "submissions_by_form": submissions_by_form,
         "approval_rate_pct": approval_rate,
         "avg_review_time_hours": avg_review_hours,
+        "role_distribution": role_distribution,
+        "system_info": {
+            "app_version": settings.APP_VERSION,
+            "database_engine": "SQLite",
+            "database_server_version": "3.x",
+            "debug_mode": settings.DEBUG,
+            "workflow_mode": "Sequential Review → Approval",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        },
     }}
 
 
@@ -82,8 +100,9 @@ async def reviewer_dashboard(
     if not is_reviewer and not is_approver:
         return {"success": True, "data": {}}
 
+    pending_reviews = 0
     if is_reviewer:
-        pending = (
+        pending_reviews = (
             db.query(Submission)
             .join(
                 FormAssignment,
@@ -98,23 +117,10 @@ async def reviewer_dashboard(
             .distinct()
             .count()
         )
-        my_active_reviews = (
-            db.query(Submission)
-            .join(
-                FormAssignment,
-                (FormAssignment.form_id == Submission.form_id)
-                & (FormAssignment.user_id == current_user.id)
-                & (FormAssignment.role == REVIEWER_ROLE)
-            )
-            .filter(
-                Submission.status == SubmissionStatus.SUBMITTED,
-                Submission.current_assignee == current_user.id,
-            )
-            .distinct()
-            .count()
-        )
-    else:
-        pending = (
+
+    pending_approvals = 0
+    if is_approver:
+        pending_approvals = (
             db.query(Submission)
             .join(
                 FormAssignment,
@@ -125,32 +131,33 @@ async def reviewer_dashboard(
             .filter(
                 Submission.status == SubmissionStatus.UNDER_REVIEW,
                 (Submission.current_assignee.is_(None)) | (Submission.current_assignee == current_user.id),
-            )
-            .distinct()
-            .count()
-        )
-        my_active_reviews = (
-            db.query(Submission)
-            .join(
-                FormAssignment,
-                (FormAssignment.form_id == Submission.form_id)
-                & (FormAssignment.user_id == current_user.id)
-                & (FormAssignment.role == APPROVER_ROLE)
-            )
-            .filter(
-                Submission.status == SubmissionStatus.UNDER_REVIEW,
-                Submission.current_assignee == current_user.id,
             )
             .distinct()
             .count()
         )
 
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today - timedelta(days=today.weekday())
+
     reviewed_today = (
         db.query(WorkflowAction)
         .filter(
             WorkflowAction.user_id == current_user.id,
             WorkflowAction.created_at >= today,
+            WorkflowAction.action.in_([
+                WorkflowActionType.APPROVE,
+                WorkflowActionType.REQUEST_CHANGES,
+                WorkflowActionType.REJECT,
+            ]),
+        )
+        .count()
+    )
+
+    reviewed_this_week = (
+        db.query(WorkflowAction)
+        .filter(
+            WorkflowAction.user_id == current_user.id,
+            WorkflowAction.created_at >= week_start,
             WorkflowAction.action.in_([
                 WorkflowActionType.APPROVE,
                 WorkflowActionType.REQUEST_CHANGES,
@@ -166,12 +173,34 @@ async def reviewer_dashboard(
     rejected = db.query(Submission).filter(Submission.status == SubmissionStatus.REJECTED).count()
     rejection_rate = round((rejected / total_decided * 100), 1) if total_decided > 0 else 0
 
+    recent = (
+        db.query(Submission)
+        .join(
+            FormAssignment,
+            (FormAssignment.form_id == Submission.form_id)
+            & (FormAssignment.user_id == current_user.id)
+            & (FormAssignment.role.in_([REVIEWER_ROLE, APPROVER_ROLE]))
+        )
+        .filter(Submission.status != SubmissionStatus.DRAFT)
+        .order_by(Submission.updated_at.desc())
+        .limit(10)
+        .all()
+    )
+    recent_activity = [
+        {"id": s.id, "request_number": s.request_number,
+         "status": s.status.value if hasattr(s.status, 'value') else s.status,
+         "updated_at": s.updated_at.isoformat() if s.updated_at else None}
+        for s in recent
+    ]
+
     return {"success": True, "data": {
-        "pending_reviews": pending,
+        "pending_reviews": pending_reviews,
+        "pending_approvals": pending_approvals,
         "reviewed_today": reviewed_today,
-        "reviewed_this_week": my_active_reviews,
+        "reviewed_this_week": reviewed_this_week,
         "avg_review_time_hours": 0,
         "rejection_rate_pct": rejection_rate,
+        "recent_activity": recent_activity,
     }}
 
 

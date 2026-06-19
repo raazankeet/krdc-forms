@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Card, Typography, IconButton, Tooltip, Grid, Alert, Button, Tabs, Tab,
+  Box, Card, Typography, IconButton, Tooltip, Grid, Alert, Button, Tabs, Tab, Stack,
 } from '@mui/material';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
 import { Visibility, Refresh, HourglassEmpty, CheckCircle, RateReview, AccessTime } from '@mui/icons-material';
@@ -157,18 +157,11 @@ export default function ReviewQueuePage() {
     },
   });
 
-  const statCards = [
-    { label: 'Pending', value: stats?.pending_reviews ?? '—', icon: <HourglassEmpty fontSize="large" color="warning" />, color: 'warning' },
-    { label: 'Checked Out', value: stats?.reviewed_this_week ?? '—', icon: <RateReview fontSize="large" color="info" />, color: 'info' },
-    { label: 'Reviewed Today', value: stats?.reviewed_today ?? '—', icon: <CheckCircle fontSize="large" color="success" />, color: 'success' },
-    { label: 'Avg Review Time', value: stats?.avg_review_time_hours ? `${stats.avg_review_time_hours}h` : '—', icon: <AccessTime fontSize="large" sx={{ color: 'grey.600' }} />, color: 'default' },
-  ];
 
   return (
     <Box>
       <PageHeader
         title={isApproverOnly ? 'Approval Queue' : 'Review Queue'}
-        subtitle={isApproverOnly ? 'Requests awaiting your approval action' : 'Requests awaiting your reviewer or approver action'}
         breadcrumbs={[{ label: isApproverOnly ? 'Approval Queue' : 'Review Queue' }]}
         actions={
           <Tooltip title="Refresh">
@@ -187,28 +180,6 @@ export default function ReviewQueuePage() {
       </Box>
 
       {activeTab === 'guide' && <RequestLifecycleGuide context="reviewer" />}
-
-      {activeTab === 'queue' && <Grid container spacing={2} sx={{ mb: 3 }}>
-        {statCards.map((card, idx) => (
-          <Grid size={{ xs: 12, sm: 6, md: 3 }} key={idx}>
-            <Card sx={{ p: 2.5, borderRadius: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Box sx={{
-                width: 48, height: 48, borderRadius: 2,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                bgcolor: card.color === 'default' ? 'grey.100' : `${card.color}.light`,
-              }}>
-                {card.icon}
-              </Box>
-              <Box>
-                <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                  {card.value}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">{card.label}</Typography>
-              </Box>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>}
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} action={<Button size="small" onClick={fetchData}>Retry</Button>}>

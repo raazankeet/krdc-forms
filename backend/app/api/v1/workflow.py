@@ -495,3 +495,65 @@ async def add_comment(
 
     return {"success": True, "data": {"id": comment.id, "comment": comment.comment,
             "created_at": comment.created_at.isoformat() if comment.created_at else None}}
+
+
+@router.post("/submissions/{submission_id}/field-comments", response_model=dict)
+async def add_field_comment(
+    submission_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Add an inline field-level comment during review."""
+    body = await request.json()
+    field_name = body.get("field_name")
+    comment_text = body.get("comment")
+
+    if not field_name or not comment_text:
+        raise WorkflowException("field_name and comment are required")
+
+    submission = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not submission:
+        raise NotFoundException("Submission not found")
+
+    _ensure_not_admin_operator(current_user)
+    role_names = _role_names(current_user)
+    is_reviewer_or_approver = "Reviewer" in role_names or "Approver" in role_names
+    is_owner = submission.user_id == current_user.id
+
+    if not is_reviewer_or_approver and not is_owner:
+        raise WorkflowException("Only reviewers, approvers, or the submission owner can add field comments")
+
+    if is_reviewer_or_approver:
+        # Reviewer/approver must be the assigned user
+        if submission.current_assignee != current_user.id:
+            raise WorkflowException("Only the assigned reviewer/approver can add field comments")
+    elif is_owner:
+        # Owner can only reply when submission is in needs_correction
+        if submission.status != SubmissionStatus.NEEDS_CORRECTION:
+            raise WorkflowException("You can only reply to comments when the submission is returned for correction")
+
+    comment = SubmissionComment(
+        submission_id=submission_id,
+        user_id=current_user.id,
+        comment=comment_text,
+        comment_type=CommentType.CORRECTION_REQUEST,
+        field_name=field_name,
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+
+    user = db.query(User).filter(User.id == current_user.id).first()
+    return {
+        "success": True,
+        "data": {
+            "id": comment.id,
+            "field_name": comment.field_name,
+            "user_id": comment.user_id,
+            "user_name": user.full_name if user else None,
+            "comment": comment.comment,
+            "comment_type": comment.comment_type.value if hasattr(comment.comment_type, 'value') else str(comment.comment_type),
+            "created_at": comment.created_at.isoformat() if comment.created_at else None,
+        },
+    }

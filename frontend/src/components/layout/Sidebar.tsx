@@ -98,7 +98,10 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
       <List sx={{ px: 1 }}>
         {filteredItems.map((item) => {
-          const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
+          const bestMatch = [...filteredItems]
+            .filter((i) => location.pathname === i.path || (i.path !== '/' && location.pathname.startsWith(i.path)))
+            .sort((a, b) => b.path.length - a.path.length)[0];
+          const isActive = bestMatch?.path === item.path;
           const button = (
             <ListItemButton
               key={item.path}

@@ -45,14 +45,28 @@ export default function PageHeader({ title, subtitle, actions, breadcrumbs }: Pa
       )}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
         <Box>
-          <Typography variant="h4">{title}</Typography>
+          <Typography
+            variant="h4"
+            className="anim-fadeInUp"
+          >
+            {title}
+          </Typography>
           {subtitle && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              className="anim-fadeInUp-d1"
+              sx={{ mt: 0.5 }}
+            >
               {subtitle}
             </Typography>
           )}
         </Box>
-        {actions && <Box sx={{ display: 'flex', gap: 1 }}>{actions}</Box>}
+        {actions && (
+          <Box className="anim-slideInRight" sx={{ display: 'flex', gap: 1 }}>
+            {actions}
+          </Box>
+        )}
       </Box>
     </Box>
   );

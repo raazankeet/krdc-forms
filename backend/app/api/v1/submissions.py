@@ -227,17 +227,23 @@ async def get_submission(
                  "is_approved_snapshot": v.is_approved_snapshot} for v in (submission.versions or [])]
 
     comments = []
+    field_comments = []
     for c in (submission.comments or []):
         cu = db.query(User).filter(User.id == c.user_id).first()
-        comments.append({"id": c.id, "submission_id": c.submission_id, "user_id": c.user_id, "user_name": cu.full_name if cu else None,
+        comment_data = {"id": c.id, "submission_id": c.submission_id, "user_id": c.user_id, "user_name": cu.full_name if cu else None,
                         "comment": c.comment, "comment_type": c.comment_type.value if hasattr(c.comment_type, 'value') else c.comment_type,
+                        "field_name": c.field_name,
                         "created_at": c.created_at.isoformat() if c.created_at else None,
                         "user": {
                             "id": cu.id,
                             "username": cu.username,
                             "full_name": cu.full_name,
                             "email": cu.email,
-                        } if cu else None})
+                        } if cu else None}
+        if c.field_name:
+            field_comments.append(comment_data)
+        else:
+            comments.append(comment_data)
 
     workflow = []
     for w in (submission.workflow_actions or []):
@@ -277,6 +283,7 @@ async def get_submission(
         "current_version": current_version,
         "versions": versions,
         "comments": comments,
+        "field_comments": field_comments,
         "workflow_actions": workflow,
     }}
 

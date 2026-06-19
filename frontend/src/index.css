@@ -1,8 +1,26 @@
 /* GLP Forms - Global Styles */
+
+/* ── Reset ───────────────────────────────────────────────── */
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+/* ── Base ────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Fix browser autofill styling for dark/glassmorphic backgrounds */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #1a1e29 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #ffffff;
 }
 
 body {
@@ -10,12 +28,148 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.35s ease, color 0.35s ease;
 }
 
 #root {
   min-height: 100vh;
 }
 
+/* ── Selection ───────────────────────────────────────────── */
+::selection {
+  background: rgba(57, 73, 171, 0.25);
+  color: inherit;
+}
+
+/* ── Custom Scrollbar ────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+/* ── Keyframe Animations ─────────────────────────────────── */
+
+/* Slide up + fade in (cards, headings, page content) */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Subtle shimmer sweep for skeleton placeholders */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Gentle floating bob (decorative elements, empty-state icons) */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+/* Animated gradient shift for hero/login backgrounds */
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Soft pulsing glow for approved / success highlights */
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 12px 4px rgba(46, 125, 50, 0.15);
+  }
+}
+
+/* Scale + fade entrance for chips/badges */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Slide in from the right (action buttons) */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── Utility Animation Classes ───────────────────────────── */
+.anim-fadeInUp {
+  animation: fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.anim-fadeInUp-d1 {
+  animation: fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.anim-fadeInUp-d2 {
+  animation: fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.16s both;
+}
+
+.anim-fadeInUp-d3 {
+  animation: fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.24s both;
+}
+
+.anim-scaleIn {
+  animation: scaleIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.anim-float {
+  animation: float 3.5s ease-in-out infinite;
+}
+
+.anim-slideInRight {
+  animation: slideInRight 0.4s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+}
+
+/* ── Print ───────────────────────────────────────────────── */
 @page {
   size: A4 portrait;
   margin: 8mm;

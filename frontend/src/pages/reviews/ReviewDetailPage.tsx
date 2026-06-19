@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -37,6 +37,7 @@ import RequestStageStepper from '../../components/common/RequestStageStepper';
 import { formatLocalDateTimeWithRelative } from '../../utils/dateTime';
 import { getDerivedSubmissionLabel, getWorkflowHistoryView } from '../../utils/requestLifecycle';
 import type { Submission, SubmissionComment, WorkflowAction, ApiResponse } from '../../types';
+import type { FieldComment } from '../../types/form';
 
 function TabPanel({ children, value, index }: { children: React.ReactNode; value: number; index: number }) {
   if (value !== index) return null;
@@ -97,6 +98,17 @@ export default function ReviewDetailPage() {
 
     setActionLoading(action);
     try {
+      // Send all pending field comments before the workflow action
+      if (pendingFieldComments.length > 0) {
+        for (const pfc of pendingFieldComments) {
+          await apiService.post(`/api/v1/submissions/${id}/field-comments`, {
+            field_name: pfc.field_name,
+            comment: pfc.comment,
+          });
+        }
+        setPendingFieldComments([]);
+      }
+
       await apiService.post(`/api/v1/submissions/${id}/workflow/${getWorkflowEndpoint(action)}`, {
         comment: commentText || undefined,
       });
@@ -134,6 +146,30 @@ export default function ReviewDetailPage() {
   const formComponent = submission?.form?.form_code ? getFormComponent(submission.form.form_code) : undefined;
   const FormView = formComponent?.FormView;
   const formData = submission?.current_version?.data || {};
+
+  // Pending field comments — accumulated locally until workflow action sends them
+  const [pendingFieldComments, setPendingFieldComments] = useState<
+    Array<{ field_name: string; comment: string }>
+  >([]);
+
+  const handleAddFieldComment = useCallback((fieldName: string, comment: string) => {
+    setPendingFieldComments((prev) => [...prev, { field_name: fieldName, comment }]);
+  }, []);
+
+  // Merge saved + pending for display
+  const displayFieldComments: FieldComment[] = useMemo(() => {
+    const saved: FieldComment[] = submission?.field_comments || [];
+    const pending: FieldComment[] = pendingFieldComments.map((pfc, idx) => ({
+      id: -1 - idx,
+      field_name: pfc.field_name,
+      user_id: user?.id || 0,
+      user_name: (user?.full_name || 'You') + ' (pending)',
+      comment: pfc.comment,
+      comment_type: 'correction_request',
+      created_at: new Date().toISOString(),
+    }));
+    return [...saved, ...pending];
+  }, [submission?.field_comments, pendingFieldComments, user]);
 
   if (loading) {
     return (
@@ -282,7 +318,16 @@ export default function ReviewDetailPage() {
 
         <TabPanel value={tab} index={0}>
           <Box sx={{ px: 3, pb: 3 }}>
-            {FormView ? <FormView data={formData} readOnly /> : <EmptyState title="Form data unavailable" />}
+            {FormView ? (
+              <FormView
+                data={formData}
+                readOnly
+                fieldComments={displayFieldComments}
+                onAddFieldComment={isAssignedToCurrentUser ? handleAddFieldComment : undefined}
+              />
+            ) : (
+              <EmptyState title="Form data unavailable" />
+            )}
           </Box>
         </TabPanel>
 

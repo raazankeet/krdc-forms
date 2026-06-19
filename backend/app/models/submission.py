@@ -84,6 +84,7 @@ class SubmissionComment(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     comment = Column(Text, nullable=False)
     comment_type = Column(Enum(CommentType), default=CommentType.GENERAL, nullable=False)
+    field_name = Column(String(255), nullable=True, index=True)  # null = general comment, set = field-level inline comment
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships

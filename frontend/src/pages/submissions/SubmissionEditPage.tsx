@@ -15,7 +15,7 @@ import ConfirmDialog from '../../components/common/ConfirmDialog';
 import FormInstructionsDialog from '../../components/common/FormInstructionsDialog';
 import IssueDialog from '../../components/common/IssueDialog';
 import type { Submission, ApiResponse } from '../../types';
-import type { FormData, ValidationErrors } from '../../types/form';
+import type { FormData, ValidationErrors, FieldComment } from '../../types/form';
 
 interface SaveStatus {
   state: 'idle' | 'saving' | 'saved' | 'error';
@@ -76,7 +76,25 @@ export default function SubmissionEditPage() {
 
   const formComponent = useMemo(() => (formCode ? getFormComponent(formCode) : undefined), [formCode]);
   const isResubmission = submission?.status === 'needs_correction';
+  const fieldComments: FieldComment[] = submission?.field_comments || [];
   const getLatestFormData = useCallback(() => liveFormDataRef.current, []);
+
+  const handleAddFieldComment = useCallback(async (fieldName: string, comment: string) => {
+    if (!currentSubmissionId.current) return;
+    try {
+      await apiService.post(`/api/v1/submissions/${currentSubmissionId.current}/field-comments`, {
+        field_name: fieldName,
+        comment,
+      });
+      enqueueSnackbar('Reply added', { variant: 'success' });
+      // Re-fetch to show the new reply
+      const res = await apiService.get<ApiResponse<Submission>>(`/api/v1/submissions/${currentSubmissionId.current}`);
+      setSubmission(res.data);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
+      enqueueSnackbar(axiosErr?.response?.data?.error?.message || 'Failed to add reply', { variant: 'error' });
+    }
+  }, [enqueueSnackbar]);
 
   const openIssueDialog = useCallback((message: string, title = 'Submission Issue') => {
     setIssueDialog({ open: true, title, message });
@@ -422,6 +440,8 @@ export default function SubmissionEditPage() {
           errors={validationErrors}
           onBlur={handleBlur}
           touched={touched}
+          fieldComments={fieldComments}
+          onAddFieldComment={isResubmission ? handleAddFieldComment : undefined}
         />
       </Paper>
 

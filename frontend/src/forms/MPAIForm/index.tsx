@@ -2,16 +2,25 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   Box,
   Paper,
+  Popover,
   Stack,
   TextField,
   Typography,
+  IconButton,
+  Tooltip,
+  Chip,
 } from '@mui/material';
+import {
+  InfoOutlined,
+  ChatBubbleOutlined,
+} from '@mui/icons-material';
 import type {
   FormComponent,
   FormData,
   ValidationErrors,
   FormEditProps,
   FormViewProps,
+  FieldComment,
 } from '../../types/form';
 
 const FORM_CODE = 'MPAI';
@@ -517,11 +526,20 @@ const CompactSheetInput = memo(function CompactSheetInput({
   );
 });
 
-function FormView({ data, printScale }: FormViewProps) {
-  return <MPAISheet data={data} mode="view" printScale={printScale} />;
+function FormView({ data, printScale, fieldComments, onAddFieldComment, addingCommentField }: FormViewProps) {
+  return (
+    <MPAISheet
+      data={data}
+      mode="view"
+      printScale={printScale}
+      fieldComments={fieldComments}
+      onAddFieldComment={onAddFieldComment}
+      addingCommentField={addingCommentField}
+    />
+  );
 }
 
-function FormEdit({ data, onChange, onLiveChange, errors, onBlur, touched }: FormEditProps) {
+function FormEdit({ data, onChange, onLiveChange, errors, onBlur, touched, fieldComments, onAddFieldComment }: FormEditProps) {
   const [draftData, setDraftData] = useState<FormData>(data);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -617,6 +635,8 @@ function FormEdit({ data, onChange, onLiveChange, errors, onBlur, touched }: For
         onSampleChange={handleSampleChange}
         onBlur={handleFieldBlur}
         getError={getError}
+        fieldComments={fieldComments}
+        onAddFieldComment={onAddFieldComment}
       />
     </Stack>
   );
@@ -633,6 +653,9 @@ interface MPAISheetProps {
   onSampleChange?: (index: number, field: keyof SampleRow, value: string) => void;
   onBlur?: (field: string) => void;
   getError?: (field: string) => string | undefined;
+  fieldComments?: FieldComment[];
+  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  addingCommentField?: string | null;
 }
 
 function MPAISheet({
@@ -644,6 +667,9 @@ function MPAISheet({
   onSampleChange,
   onBlur,
   getError,
+  fieldComments,
+  onAddFieldComment,
+  addingCommentField,
 }: MPAISheetProps) {
   const resolvedPrintScale = printScale ?? PRINT_SCALE;
   const resolvedScreenScale = printScale === undefined ? SCREEN_VIEW_SCALE : 1;
@@ -689,6 +715,43 @@ function MPAISheet({
     [getError, standardInjections],
   );
 
+  // --- Inline field comment state ---
+  const [commentPopoverField, setCommentPopoverField] = useState<string | null>(null);
+  const [newFieldComment, setNewFieldComment] = useState('');
+  const commentPopoverAnchor = useRef<HTMLElement | null>(null);
+
+  const getFieldComments = useCallback((fieldName: string): FieldComment[] => {
+    if (!fieldComments) return [];
+    return fieldComments.filter((fc) => fc.field_name === fieldName);
+  }, [fieldComments]);
+
+  const hasFieldComments = useCallback((fieldName: string): boolean => {
+    if (!fieldComments) return false;
+    return fieldComments.some((fc) => fc.field_name === fieldName);
+  }, [fieldComments]);
+
+  const handleCommentIconClick = useCallback((fieldName: string, event: React.MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    commentPopoverAnchor.current = event.currentTarget;
+    setCommentPopoverField(fieldName);
+    setNewFieldComment('');
+  }, []);
+
+  const handleAddFieldComment = useCallback(async () => {
+    if (!commentPopoverField || !newFieldComment.trim() || !onAddFieldComment) return;
+    await onAddFieldComment(commentPopoverField, newFieldComment.trim());
+    setNewFieldComment('');
+  }, [commentPopoverField, newFieldComment, onAddFieldComment]);
+
+  const handleCloseCommentPopover = useCallback(() => {
+    setCommentPopoverField(null);
+    setNewFieldComment('');
+  }, []);
+
+  const fieldCommentsForPopover = commentPopoverField
+    ? getFieldComments(commentPopoverField)
+    : [];
+
   const renderField = (
     field: string,
     options?: {
@@ -706,28 +769,112 @@ function MPAISheet({
     const fill = options?.fill ?? true;
     const readOnly = options?.readOnly ?? false;
 
+    const fieldComments = getFieldComments(field);
+    const showCommentIcon = fieldComments.length > 0 || !!onAddFieldComment;
+    const isAddingToThisField = addingCommentField === field;
+
     if (!isEdit || readOnly) {
-      return (
+      const cellContent = (
         <Cell fill={fill} align={align}>
           <ValueText align={align} muted={!value}>
             {value || (options?.placeholder || '')}
           </ValueText>
         </Cell>
       );
+
+      if (showCommentIcon && value) {
+        return (
+          <Box sx={{ position: 'relative' }}>
+            {cellContent}
+            <IconButton
+              size="small"
+              onClick={(e) => handleCommentIconClick(field, e)}
+              sx={{
+                position: 'absolute',
+                top: -2,
+                right: -2,
+                p: 0.15,
+                width: 18,
+                height: 18,
+                minWidth: 18,
+                bgcolor: fieldComments.length > 0 ? 'primary.light' : 'grey.200',
+                border: '1px solid',
+                borderColor: fieldComments.length > 0 ? 'primary.main' : 'grey.400',
+                borderRadius: '50%',
+                '@media print': { display: 'none' },
+                '&:hover': {
+                  bgcolor: fieldComments.length > 0 ? 'primary.main' : 'primary.light',
+                  '& .MuiSvgIcon-root': { color: '#fff' },
+                },
+              }}
+            >
+              <InfoOutlined sx={{ fontSize: 13, color: fieldComments.length > 0 ? '#fff' : 'text.secondary' }} />
+            </IconButton>
+            {fieldComments.length > 0 && (
+              <Chip
+                label={fieldComments.length}
+                size="small"
+                sx={{
+                  position: 'absolute',
+                  top: -4,
+                  right: 14,
+                  height: 16,
+                  minWidth: 16,
+                  fontSize: '0.6rem',
+                  bgcolor: 'primary.main',
+                  color: '#fff',
+                  '@media print': { display: 'none' },
+                  '& .MuiChip-label': { px: 0.4, py: 0 },
+                }}
+              />
+            )}
+          </Box>
+        );
+      }
+
+      return cellContent;
     }
 
     return (
-      <Cell fill={fill} noPadding>
-        <SheetInput
-          value={value}
-          type={options?.type || 'text'}
-          onChange={(nextValue) => onFieldChange?.(field, nextValue)}
-          onBlur={() => onBlur?.(field)}
-          align={align}
-          hasError={hasError}
-          inputMode={TOP_LEVEL_NUMERIC_FIELDS.has(field) ? 'decimal' : undefined}
-        />
-      </Cell>
+      <Box sx={{ position: 'relative' }}>
+        <Cell fill={fill} noPadding>
+          <SheetInput
+            value={value}
+            type={options?.type || 'text'}
+            onChange={(nextValue) => onFieldChange?.(field, nextValue)}
+            onBlur={() => onBlur?.(field)}
+            align={align}
+            hasError={hasError}
+            inputMode={TOP_LEVEL_NUMERIC_FIELDS.has(field) ? 'decimal' : undefined}
+          />
+        </Cell>
+        {fieldComments.length > 0 && (
+          <IconButton
+            size="small"
+            onClick={(e) => handleCommentIconClick(field, e)}
+            sx={{
+              position: 'absolute',
+              top: -2,
+              right: -2,
+              p: 0.15,
+              width: 18,
+              height: 18,
+              minWidth: 18,
+              bgcolor: 'primary.light',
+              border: '1px solid',
+              borderColor: 'primary.main',
+              borderRadius: '50%',
+              '@media print': { display: 'none' },
+              '&:hover': {
+                bgcolor: 'primary.main',
+                '& .MuiSvgIcon-root': { color: '#fff' },
+              },
+            }}
+          >
+            <InfoOutlined sx={{ fontSize: 13, color: '#fff' }} />
+          </IconButton>
+        )}
+      </Box>
     );
   };
 
@@ -898,6 +1045,9 @@ function MPAISheet({
                     error={standardInjectionErrors[index]}
                     onChange={onStandardInjectionChange}
                     onBlur={onBlur}
+                    fieldComments={fieldComments}
+                    onAddFieldComment={onAddFieldComment}
+                    onCommentIconClick={handleCommentIconClick}
                   />
                 ))}
                 <HeaderCell>Mean</HeaderCell>
@@ -929,6 +1079,9 @@ function MPAISheet({
                   errors={sampleFieldErrors[index]}
                   onChange={onSampleChange}
                   onBlur={onBlur}
+                  fieldComments={fieldComments}
+                  onAddFieldComment={onAddFieldComment}
+                  onCommentIconClick={handleCommentIconClick}
                 />
               ))}
               <SpanCell columns={4}><Cell /></SpanCell>
@@ -1003,7 +1156,160 @@ function MPAISheet({
           </Box>
         </Box>
       </Box>
+
+      {/* Inline Field Comment Popover */}
+      <Popover
+        open={!!commentPopoverField}
+        anchorEl={commentPopoverAnchor.current}
+        onClose={handleCloseCommentPopover}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        slotProps={{ paper: { sx: { maxWidth: 340, p: 0, borderRadius: 2 } } }}
+      >
+        <Box sx={{ p: 2, pb: 1.5 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Field: {commentPopoverField}
+          </Typography>
+
+          {fieldCommentsForPopover.length > 0 && (
+            <Stack spacing={1} sx={{ mb: 1.5, maxHeight: 200, overflowY: 'auto' }}>
+              {fieldCommentsForPopover.map((fc) => (
+                <Box
+                  key={fc.id}
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 1.5,
+                    bgcolor: 'warning.50',
+                    border: '1px solid',
+                    borderColor: 'warning.200',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                      {fc.user_name}
+                    </Typography>
+                    <Box sx={{ textAlign: 'right', lineHeight: 1.15 }}>
+                      <Typography variant="caption" sx={{ fontSize: '0.68rem' }} color="text.secondary">
+                        {fc.created_at ? new Date(fc.created_at).toLocaleDateString() : ''}
+                      </Typography>
+                      <br />
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem' }} color="text.secondary">
+                        {fc.created_at
+                          ? new Date(fc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : ''}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Typography variant="body2">{fc.comment}</Typography>
+                </Box>
+              ))}
+            </Stack>
+          )}
+
+          {fieldCommentsForPopover.length === 0 && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontStyle: 'italic' }}>
+              No comments yet.
+            </Typography>
+          )}
+
+          {onAddFieldComment && (
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+              <TextField
+                fullWidth
+                size="small"
+                multiline
+                minRows={2}
+                maxRows={4}
+                placeholder="Add a comment..."
+                value={newFieldComment}
+                onChange={(e) => setNewFieldComment(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { fontSize: '0.85rem' } }}
+              />
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={handleAddFieldComment}
+                disabled={!newFieldComment.trim() || addingCommentField === commentPopoverField}
+                sx={{ mt: 0.3 }}
+              >
+                <ChatBubbleOutlined fontSize="small" />
+              </IconButton>
+            </Box>
+          )}
+        </Box>
+      </Popover>
     </Paper>
+  );
+}
+
+function CommentableCell({
+  field,
+  value,
+  children,
+  fieldComments,
+  onAddFieldComment,
+  onCommentIconClick,
+}: {
+  field: string;
+  value: unknown;
+  children: React.ReactNode;
+  fieldComments?: FieldComment[];
+  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  onCommentIconClick: (fieldName: string, event: React.MouseEvent<HTMLElement>) => void;
+}) {
+  const hasComments = fieldComments?.some((fc) => fc.field_name === field);
+  const commentCount = fieldComments?.filter((fc) => fc.field_name === field).length || 0;
+  const showIcon = !!onAddFieldComment || hasComments;
+  const displayVal = value !== null && value !== undefined && String(value).trim() !== '';
+
+  if (!showIcon || !displayVal) return <>{children}</>;
+
+  return (
+    <Box sx={{ position: 'relative' }}>
+      {children}
+      <IconButton
+        size="small"
+        onClick={(e) => onCommentIconClick(field, e)}
+        sx={{
+          position: 'absolute',
+          top: -2,
+          right: -2,
+          p: 0.15,
+          width: 18,
+          height: 18,
+          minWidth: 18,
+          bgcolor: hasComments ? 'primary.light' : 'grey.200',
+          border: '1px solid',
+          borderColor: hasComments ? 'primary.main' : 'grey.400',
+          borderRadius: '50%',
+          '@media print': { display: 'none' },
+          '&:hover': {
+            bgcolor: hasComments ? 'primary.main' : 'primary.light',
+            '& .MuiSvgIcon-root': { color: '#fff' },
+          },
+        }}
+      >
+        <InfoOutlined sx={{ fontSize: 13, color: hasComments ? '#fff' : 'text.secondary' }} />
+      </IconButton>
+      {commentCount > 0 && (
+        <Chip
+          label={commentCount}
+          size="small"
+          sx={{
+            position: 'absolute',
+            top: -4,
+            right: 14,
+            height: 16,
+            minWidth: 16,
+            fontSize: '0.6rem',
+            bgcolor: 'primary.main',
+            color: '#fff',
+            '@media print': { display: 'none' },
+            '& .MuiChip-label': { px: 0.4, py: 0 },
+          }}
+        />
+      )}
+    </Box>
   );
 }
 
@@ -1014,6 +1320,9 @@ const StandardInjectionRowCells = memo(function StandardInjectionRowCells({
   error,
   onChange,
   onBlur,
+  fieldComments,
+  onAddFieldComment,
+  onCommentIconClick,
 }: {
   index: number;
   row: StandardInjectionRow;
@@ -1021,22 +1330,35 @@ const StandardInjectionRowCells = memo(function StandardInjectionRowCells({
   error?: string;
   onChange?: (index: number, field: keyof StandardInjectionRow, value: string) => void;
   onBlur?: (field: string) => void;
+  fieldComments?: FieldComment[];
+  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  onCommentIconClick: (fieldName: string, event: React.MouseEvent<HTMLElement>) => void;
 }) {
+  const fieldName = `standard_injections.${index}.area_count`;
+
   return (
     <Fragment>
       <Cell fill={false} align="center">
         <ValueText align="center" muted={!row.injection}>{row.injection}</ValueText>
       </Cell>
       {!isEdit ? (
-        <Cell fill align="center">
-          <ValueText align="center" muted={!row.area_count}>{row.area_count}</ValueText>
-        </Cell>
+        <CommentableCell
+          field={fieldName}
+          value={row.area_count}
+          fieldComments={fieldComments}
+          onAddFieldComment={onAddFieldComment}
+          onCommentIconClick={onCommentIconClick}
+        >
+          <Cell fill align="center">
+            <ValueText align="center" muted={!row.area_count}>{row.area_count}</ValueText>
+          </Cell>
+        </CommentableCell>
       ) : (
         <Cell fill noPadding>
           <CompactSheetInput
             value={row.area_count}
             onChange={(nextValue) => onChange?.(index, 'area_count', nextValue)}
-            onBlur={() => onBlur?.(`standard_injections.${index}.area_count`)}
+            onBlur={() => onBlur?.(fieldName)}
             hasError={!!error}
             inputMode="decimal"
           />
@@ -1055,6 +1377,9 @@ const SampleRowCells = memo(function SampleRowCells({
   errors,
   onChange,
   onBlur,
+  fieldComments,
+  onAddFieldComment,
+  onCommentIconClick,
 }: {
   index: number;
   row: SampleRow;
@@ -1068,8 +1393,14 @@ const SampleRowCells = memo(function SampleRowCells({
   };
   onChange?: (index: number, field: keyof SampleRow, value: string) => void;
   onBlur?: (field: string) => void;
+  fieldComments?: FieldComment[];
+  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  onCommentIconClick: (fieldName: string, event: React.MouseEvent<HTMLElement>) => void;
 }) {
   const averageArea = formatAverageValue(row.injection_1, row.injection_2);
+  const weightField = `samples.${index}.weight_mg`;
+  const inj1Field = `samples.${index}.injection_1`;
+  const inj2Field = `samples.${index}.injection_2`;
 
   return (
     <Fragment>
@@ -1077,45 +1408,69 @@ const SampleRowCells = memo(function SampleRowCells({
         <ValueText align="center" muted={!row.name}>{row.name}</ValueText>
       </Cell>
       {!isEdit ? (
-        <Cell fill align="center">
-          <ValueText align="center" muted={!row.weight_mg}>{row.weight_mg}</ValueText>
-        </Cell>
+        <CommentableCell
+          field={weightField}
+          value={row.weight_mg}
+          fieldComments={fieldComments}
+          onAddFieldComment={onAddFieldComment}
+          onCommentIconClick={onCommentIconClick}
+        >
+          <Cell fill align="center">
+            <ValueText align="center" muted={!row.weight_mg}>{row.weight_mg}</ValueText>
+          </Cell>
+        </CommentableCell>
       ) : (
         <Cell fill noPadding>
           <CompactSheetInput
             value={row.weight_mg}
             onChange={(nextValue) => onChange?.(index, 'weight_mg', nextValue)}
-            onBlur={() => onBlur?.(`samples.${index}.weight_mg`)}
+            onBlur={() => onBlur?.(weightField)}
             hasError={!!errors?.weight_mg}
             inputMode="decimal"
           />
         </Cell>
       )}
       {!isEdit ? (
-        <Cell fill align="center">
-          <ValueText align="center" muted={!row.injection_1}>{row.injection_1}</ValueText>
-        </Cell>
+        <CommentableCell
+          field={inj1Field}
+          value={row.injection_1}
+          fieldComments={fieldComments}
+          onAddFieldComment={onAddFieldComment}
+          onCommentIconClick={onCommentIconClick}
+        >
+          <Cell fill align="center">
+            <ValueText align="center" muted={!row.injection_1}>{row.injection_1}</ValueText>
+          </Cell>
+        </CommentableCell>
       ) : (
         <Cell fill noPadding>
           <CompactSheetInput
             value={row.injection_1}
             onChange={(nextValue) => onChange?.(index, 'injection_1', nextValue)}
-            onBlur={() => onBlur?.(`samples.${index}.injection_1`)}
+            onBlur={() => onBlur?.(inj1Field)}
             hasError={!!errors?.injection_1}
             inputMode="decimal"
           />
         </Cell>
       )}
       {!isEdit ? (
-        <Cell fill align="center">
-          <ValueText align="center" muted={!row.injection_2}>{row.injection_2}</ValueText>
-        </Cell>
+        <CommentableCell
+          field={inj2Field}
+          value={row.injection_2}
+          fieldComments={fieldComments}
+          onAddFieldComment={onAddFieldComment}
+          onCommentIconClick={onCommentIconClick}
+        >
+          <Cell fill align="center">
+            <ValueText align="center" muted={!row.injection_2}>{row.injection_2}</ValueText>
+          </Cell>
+        </CommentableCell>
       ) : (
         <Cell fill noPadding>
           <CompactSheetInput
             value={row.injection_2}
             onChange={(nextValue) => onChange?.(index, 'injection_2', nextValue)}
-            onBlur={() => onBlur?.(`samples.${index}.injection_2`)}
+            onBlur={() => onBlur?.(inj2Field)}
             hasError={!!errors?.injection_2}
             inputMode="decimal"
           />

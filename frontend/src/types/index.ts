@@ -1,3 +1,5 @@
+import type { FieldComment } from './form';
+
 // ============= Auth =============
 export interface User {
   id: number;
@@ -124,6 +126,100 @@ export interface Submission {
   current_version?: SubmissionVersion;
   versions?: SubmissionVersion[];
   comments?: SubmissionComment[];
+  field_comments?: FieldComment[];
+  workflow_actions?: WorkflowAction[];
+}
+
+export interface SubmissionVersion {
+  id: number;
+  submission_id: number;
+  version_number: number;
+  data: Record<string, unknown>;
+  created_by: number;
+  created_at: string;
+  is_approved_snapshot: boolean;
+}
+
+export interface SubmissionComment {
+  id: number;
+  submission_id: number;
+  user_id: number;
+  comment: string;
+  comment_type: CommentType;
+  created_at: string;
+  user?: User;
+}
+
+export interface WorkflowAction {
+  id: number;
+  submission_id: number;
+  user_id: number;
+  action: WorkflowActionType;
+  comment: string | null;
+  from_status: SubmissionStatus;
+  to_status: SubmissionStatus;
+  created_at: string;
+  user?: User;
+}
+
+// ============= Audit =============
+export interface AuditLog {
+  id: number;
+  event_id: string;
+  timestamp: string;
+  user_id: number | null;
+  user_role: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+  ip_address: string;
+}
+
+// ============= API =============
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+}
+
+export interface PaginatedResponse<T> extends ApiResponse<T[]> {
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    pages: number;
+  };
+}
+
+export interface ApiError {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+    detail: Record<string, unknown>;
+  };
+}
+
+// ============= Reports =============
+export interface AdminDashboardStats {
+  active_users: number;
+  total_forms: number;
+  total_submissions: number;
+  submissions_by_status: Record<string, number>;
+  submissions_by_form: Array<{ form_name: string; count: number }>;
+  role_distribution?: Array<{ role_name: string; count: number }>;
+  system_info?: {
+    app_version: string;
+    database_engine: string;
+    database_server_version: string;
+    debug_mode: boolean;
+    workflow_mode: string;
+    generated_at: string;
+  };
+  versions?: SubmissionVersion[];
+  comments?: SubmissionComment[];
   workflow_actions?: WorkflowAction[];
 }
 
@@ -209,14 +305,32 @@ export interface AdminDashboardStats {
   submissions_by_month: Array<{ month: string; count: number }>;
   approval_rate_pct: number;
   avg_review_time_hours: number;
+  avg_approval_time_hours?: number;
+  approved_this_week?: number;
+  rejected_this_week?: number;
+  pending_review_queue?: number;
+  pending_approval_queue?: number;
+  needs_correction?: number;
+  active_forms?: number;
+  role_distribution?: Array<{ role_name: string; count: number }>;
+  system_info?: {
+    app_version: string;
+    database_engine: string;
+    database_server_version: string;
+    debug_mode: boolean;
+    workflow_mode: string;
+    generated_at: string;
+  };
 }
 
 export interface ReviewerDashboardStats {
   pending_reviews: number;
+  pending_approvals: number;
   reviewed_today: number;
   reviewed_this_week: number;
   avg_review_time_hours: number;
   rejection_rate_pct: number;
+  recent_activity?: any[];
 }
 
 export interface UserDashboardStats {

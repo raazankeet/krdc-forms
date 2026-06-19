@@ -23,6 +23,7 @@ import {
   Delete,
 } from '@mui/icons-material';
 import { apiService } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { getFormComponent } from '../../forms/registry';
 import PageHeader from '../../components/common/PageHeader';
 import StatusChip from '../../components/common/StatusChip';
@@ -50,6 +51,7 @@ export default function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const [tab, setTab] = useState(0);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,7 +124,8 @@ export default function SubmissionDetailPage() {
     );
   }
 
-  const canEdit = submission.status === 'draft' || submission.status === 'needs_correction';
+  const canEdit = (submission.status === 'draft' || submission.status === 'needs_correction')
+    && submission.user_id === user?.id;
   const canPrint = submission.status === 'approved';
   const originPath = location.state?.originPath === '/requests' ? '/requests' : '/submissions';
   const originLabel = location.state?.originLabel === 'Request Management' ? 'Request Management' : 'Submissions';
