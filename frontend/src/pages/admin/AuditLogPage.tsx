@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Button, Typography, Chip, IconButton, Tooltip, Alert,
-  TextField, Stack, MenuItem, Card,
 } from '@mui/material';
 import { MaterialReactTable, useMaterialReactTable, type MRT_ColumnDef } from 'material-react-table';
-import { Refresh, InfoOutlined } from '@mui/icons-material';
+import { Refresh } from '@mui/icons-material';
 import { apiService } from '../../services/api';
 import PageHeader from '../../components/common/PageHeader';
 import LoadingSkeleton from '../../components/common/LoadingSkeleton';
@@ -12,37 +11,19 @@ import EmptyState from '../../components/common/EmptyState';
 import { formatLocalDateTime, formatRelativeDateTime } from '../../utils/dateTime';
 import type { AuditLog, PaginatedResponse } from '../../types';
 
-const PAGE_SIZE = 15;
-
-const ACTIONS = ['', 'login', 'logout', 'user.create', 'user.update', 'user.delete',
-  'form.create', 'form.update', 'submission.create', 'submission.update',
-  'submission.submit', 'submission.approve', 'submission.reject', 'submission.request_changes',
-  'role.create', 'role.update'];
-
-const ENTITY_TYPES = ['', 'user', 'form', 'submission', 'role'];
-
 export default function AuditLogPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(15);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = useState({
-    date_from: '', date_to: '', user_id: '', action: '', entity_type: '', entity_id: '',
-  });
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const params: Record<string, unknown> = { page: page + 1, page_size: PAGE_SIZE };
-      if (filters.date_from) params.date_from = filters.date_from;
-      if (filters.date_to) params.date_to = filters.date_to;
-      if (filters.user_id) params.user_id = filters.user_id;
-      if (filters.action) params.action = filters.action;
-      if (filters.entity_type) params.entity_type = filters.entity_type;
-      if (filters.entity_id) params.entity_id = filters.entity_id;
-
+      const params: Record<string, unknown> = { page: page + 1, page_size: pageSize };
       const res = await apiService.get<PaginatedResponse<AuditLog>>('/api/v1/audit', params);
       setLogs(res.data || []);
       setTotal(res.pagination?.total || 0);
@@ -50,14 +31,9 @@ export default function AuditLogPage() {
       const axiosErr = err as { response?: { data?: { error?: { message?: string } } } };
       setError(axiosErr?.response?.data?.error?.message || 'Failed to load audit log.');
     } finally { setLoading(false); }
-  }, [page, filters]);
+  }, [page, pageSize]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
-
-  const clearFilters = () => {
-    setFilters({ date_from: '', date_to: '', user_id: '', action: '', entity_type: '', entity_id: '' });
-    setPage(0);
-  };
 
   const columns: MRT_ColumnDef<AuditLog>[] = [
     {
@@ -70,6 +46,16 @@ export default function AuditLogPage() {
             {formatRelativeDateTime(cell.getValue<string>())}
           </Typography>
         </Tooltip>
+      ),
+    },
+    {
+      accessorKey: 'user_name',
+      header: 'User',
+      size: 160,
+      Cell: ({ cell }) => (
+        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+          {cell.getValue<string>() || 'System'}
+        </Typography>
       ),
     },
     {
@@ -92,7 +78,9 @@ export default function AuditLogPage() {
               val.includes('create') ? 'success' :
               val.includes('delete') ? 'error' :
               val.includes('approve') ? 'success' :
-              val.includes('reject') ? 'error' : 'primary'
+              val.includes('reject') ? 'error' :
+              val.includes('login') ? 'info' :
+              val.includes('logout') ? 'default' : 'primary'
             }
           />
         );
@@ -118,39 +106,32 @@ export default function AuditLogPage() {
         </Typography>
       ),
     },
-    {
-      accessorKey: 'ip_address',
-      header: 'IP Address',
-      size: 140,
-      Cell: ({ cell }) => (
-        <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-          {cell.getValue<string>() || '—'}
-        </Typography>
-      ),
-    },
   ];
 
   const table = useMaterialReactTable({
     columns,
     data: logs,
-    enableColumnFilters: false,
-    enableSorting: false,
-    enableColumnActions: false,
+    enableColumnFilters: true,
+    enableSorting: true,
+    enableColumnActions: true,
     enableDensityToggle: true,
-    enableGlobalFilter: false,
-    enableFullScreenToggle: false,
+    enableGlobalFilter: true,
+    enableFullScreenToggle: true,
+    enableColumnOrdering: true,
+    enableHiding: true,
     enablePagination: true,
     manualPagination: true,
     rowCount: total,
     initialState: { density: 'compact' },
     state: {
-      pagination: { pageIndex: page, pageSize: PAGE_SIZE },
+      pagination: { pageIndex: page, pageSize },
     },
     onPaginationChange: (updater) => {
       const newState = typeof updater === 'function'
-        ? updater({ pageIndex: page, pageSize: PAGE_SIZE })
+        ? updater({ pageIndex: page, pageSize })
         : updater;
       setPage(newState.pageIndex);
+      setPageSize(newState.pageSize);
     },
     renderToolbarInternalActions: () => (
       <Tooltip title="Refresh">
@@ -168,6 +149,101 @@ export default function AuditLogPage() {
     muiTableBodyRowProps: {
       hover: true,
     },
+    renderDetailPanel: ({ row }) => {
+      const log = row.original;
+      const requestNumber = (log.new_value?.request_number as string) || log.entity_label;
+      const formName = (log.new_value?.form_name as string) || log.entity_form;
+
+      return (
+        <Box sx={{ p: 3, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+          {requestNumber && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Request Number</Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                {requestNumber}
+              </Typography>
+            </Box>
+          )}
+          {formName && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Form</Typography>
+              <Typography variant="body2">{formName}</Typography>
+            </Box>
+          )}
+          <Box>
+            <Typography variant="caption" color="text.secondary">Event ID</Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+              {log.event_id}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Exact Timestamp</Typography>
+            <Typography variant="body2">
+              {formatLocalDateTime(log.timestamp)}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">User</Typography>
+            <Typography variant="body2">
+              {log.user_name || 'System'} (ID: {log.user_id ?? '—'})
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">IP Address</Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+              {log.ip_address || '—'}
+            </Typography>
+          </Box>
+          {log.old_value && Object.keys(log.old_value).length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">Previous State</Typography>
+              <Box
+                component="pre"
+                sx={{
+                  mt: 0.5,
+                  p: 1.5,
+                  bgcolor: 'grey.100',
+                  borderRadius: 1,
+                  fontSize: '0.75rem',
+                  fontFamily: 'monospace',
+                  overflowX: 'auto',
+                  maxHeight: 120,
+                }}
+              >
+                {JSON.stringify(log.old_value, null, 2)}
+              </Box>
+            </Box>
+          )}
+          {log.new_value && Object.keys(log.new_value).length > 0 && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">New State</Typography>
+              <Box
+                component="pre"
+                sx={{
+                  mt: 0.5,
+                  p: 1.5,
+                  bgcolor: 'success.50',
+                  borderRadius: 1,
+                  fontSize: '0.75rem',
+                  fontFamily: 'monospace',
+                  overflowX: 'auto',
+                  maxHeight: 120,
+                }}
+              >
+                {JSON.stringify(log.new_value, null, 2)}
+              </Box>
+            </Box>
+          )}
+          {(!log.old_value || Object.keys(log.old_value).length === 0) &&
+           (!log.new_value || Object.keys(log.new_value).length === 0) &&
+           !requestNumber && !formName && (
+            <Box sx={{ gridColumn: '1 / -1' }}>
+              <Typography variant="caption" color="text.secondary">No additional metadata for this event.</Typography>
+            </Box>
+          )}
+        </Box>
+      );
+    },
   });
 
   return (
@@ -176,31 +252,7 @@ export default function AuditLogPage() {
         title="Audit Log"
         subtitle="Immutable system activity records"
         breadcrumbs={[{ label: 'Admin', href: '/' }, { label: 'Audit' }]}
-        actions={
-          <Tooltip title="Refresh"><IconButton onClick={fetchLogs} disabled={loading}><Refresh /></IconButton></Tooltip>
-        }
       />
-
-      <Card sx={{ p: 2, mb: 2, borderRadius: 3, bgcolor: 'info.light', color: 'info.contrastText' }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <InfoOutlined fontSize="small" />
-          <Typography variant="body2">Audit records are immutable and cannot be modified or deleted.</Typography>
-        </Stack>
-      </Card>
-
-      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-        <TextField size="small" label="Date From" type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 160 }} />
-        <TextField size="small" label="Date To" type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 160 }} />
-        <TextField size="small" label="User ID" value={filters.user_id} onChange={(e) => setFilters({ ...filters, user_id: e.target.value })} sx={{ width: 100 }} />
-        <TextField size="small" select label="Action" value={filters.action} onChange={(e) => setFilters({ ...filters, action: e.target.value })} sx={{ width: 180 }}>
-          {ACTIONS.map((a) => <MenuItem key={a} value={a}>{a || 'All'}</MenuItem>)}
-        </TextField>
-        <TextField size="small" select label="Entity" value={filters.entity_type} onChange={(e) => setFilters({ ...filters, entity_type: e.target.value })} sx={{ width: 130 }}>
-          {ENTITY_TYPES.map((et) => <MenuItem key={et} value={et}>{et || 'All'}</MenuItem>)}
-        </TextField>
-        <TextField size="small" label="Entity ID" value={filters.entity_id} onChange={(e) => setFilters({ ...filters, entity_id: e.target.value })} sx={{ width: 100 }} />
-        <Button size="small" variant="outlined" onClick={clearFilters}>Clear</Button>
-      </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} action={<Button size="small" onClick={fetchLogs}>Retry</Button>}>{error}</Alert>}
       {loading && !error && <LoadingSkeleton variant="table" rows={10} />}

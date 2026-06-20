@@ -19,6 +19,7 @@ import RequestManagementPage from './pages/requests/RequestManagementPage';
 import UserManagementPage from './pages/admin/UserManagementPage';
 import FormManagementPage from './pages/admin/FormManagementPage';
 import AuditLogPage from './pages/admin/AuditLogPage';
+import RequestTrackerPage from './pages/admin/RequestTrackerPage';
 import PrintPreviewPage from './pages/print/PrintPreviewPage';
 
 /** Root layout — wraps all providers so the data router can use context-dependent hooks */
@@ -162,6 +163,11 @@ const router = createBrowserRouter([
                     path: 'audit',
                     element: <AuditLogPage />,
                     handle: { breadcrumb: 'Audit Log' },
+                  },
+                  {
+                    path: 'request-tracker',
+                    element: <RequestTrackerPage />,
+                    handle: { breadcrumb: 'Request Tracker' },
                   },
                 ],
               },

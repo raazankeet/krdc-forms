@@ -11,7 +11,6 @@ import {
   Chip,
 } from '@mui/material';
 import {
-  InfoOutlined,
   ChatBubbleOutlined,
 } from '@mui/icons-material';
 import type {
@@ -654,7 +653,7 @@ interface MPAISheetProps {
   onBlur?: (field: string) => void;
   getError?: (field: string) => string | undefined;
   fieldComments?: FieldComment[];
-  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  onAddFieldComment?: (fieldName: string, comment: string) => void | Promise<void>;
   addingCommentField?: string | null;
 }
 
@@ -786,47 +785,53 @@ function MPAISheet({
         return (
           <Box sx={{ position: 'relative' }}>
             {cellContent}
-            <IconButton
-              size="small"
+            <Box
               onClick={(e) => handleCommentIconClick(field, e)}
               sx={{
                 position: 'absolute',
                 top: -2,
-                right: -2,
-                p: 0.15,
-                width: 18,
-                height: 18,
-                minWidth: 18,
-                bgcolor: fieldComments.length > 0 ? 'primary.light' : 'grey.200',
-                border: '1px solid',
-                borderColor: fieldComments.length > 0 ? 'primary.main' : 'grey.400',
-                borderRadius: '50%',
+                right: -20,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 '@media print': { display: 'none' },
-                '&:hover': {
-                  bgcolor: fieldComments.length > 0 ? 'primary.main' : 'primary.light',
-                  '& .MuiSvgIcon-root': { color: '#fff' },
-                },
               }}
             >
-              <InfoOutlined sx={{ fontSize: 13, color: fieldComments.length > 0 ? '#fff' : 'text.secondary' }} />
-            </IconButton>
-            {fieldComments.length > 0 && (
-              <Chip
-                label={fieldComments.length}
-                size="small"
+              <ChatBubbleOutlined
                 sx={{
-                  position: 'absolute',
-                  top: -4,
-                  right: 14,
-                  height: 16,
-                  minWidth: 16,
-                  fontSize: '0.6rem',
-                  bgcolor: 'primary.main',
-                  color: '#fff',
-                  '@media print': { display: 'none' },
-                  '& .MuiChip-label': { px: 0.4, py: 0 },
+                  fontSize: 18,
+                  color: fieldComments.length > 0 ? 'primary.main' : 'text.secondary',
                 }}
               />
+            </Box>
+            {fieldComments.length > 0 && (
+              <Box
+                onClick={(e) => handleCommentIconClick(field, e)}
+                sx={{
+                  position: 'absolute',
+                  top: -6,
+                  right: -25,
+                  minWidth: 16,
+                  height: 16,
+                  px: 0.4,
+                  borderRadius: '50%',
+                  bgcolor: 'success.main',
+                  color: '#fff',
+                  fontSize: '0.6rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '2px solid',
+                  borderColor: '#fff',
+                  cursor: 'pointer',
+                  lineHeight: 1,
+                  '@media print': { display: 'none' },
+                }}
+              >
+                {fieldComments.length}
+              </Box>
             )}
           </Box>
         );
@@ -849,30 +854,46 @@ function MPAISheet({
           />
         </Cell>
         {fieldComments.length > 0 && (
-          <IconButton
-            size="small"
+          <Box
             onClick={(e) => handleCommentIconClick(field, e)}
             sx={{
               position: 'absolute',
-              top: -2,
-              right: -2,
-              p: 0.15,
-              width: 18,
-              height: 18,
-              minWidth: 18,
-              bgcolor: 'primary.light',
-              border: '1px solid',
-              borderColor: 'primary.main',
-              borderRadius: '50%',
+              top: -1,
+              right: -20,
+              cursor: 'pointer',
               '@media print': { display: 'none' },
-              '&:hover': {
-                bgcolor: 'primary.main',
-                '& .MuiSvgIcon-root': { color: '#fff' },
-              },
             }}
           >
-            <InfoOutlined sx={{ fontSize: 13, color: '#fff' }} />
-          </IconButton>
+            <ChatBubbleOutlined sx={{ fontSize: 18, color: 'primary.main' }} />
+          </Box>
+        )}
+        {fieldComments.length > 0 && (
+          <Box
+            onClick={(e) => handleCommentIconClick(field, e)}
+            sx={{
+              position: 'absolute',
+              top: -6,
+              right: -25,
+              minWidth: 16,
+              height: 16,
+              px: 0.4,
+              borderRadius: '50%',
+              bgcolor: 'success.main',
+              color: '#fff',
+              fontSize: '0.6rem',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '2px solid',
+              borderColor: '#fff',
+              cursor: 'pointer',
+              lineHeight: 1,
+              '@media print': { display: 'none' },
+            }}
+          >
+            {fieldComments.length}
+          </Box>
         )}
       </Box>
     );
@@ -1254,7 +1275,7 @@ function CommentableCell({
   value: unknown;
   children: React.ReactNode;
   fieldComments?: FieldComment[];
-  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  onAddFieldComment?: (fieldName: string, comment: string) => void | Promise<void>;
   onCommentIconClick: (fieldName: string, event: React.MouseEvent<HTMLElement>) => void;
 }) {
   const hasComments = fieldComments?.some((fc) => fc.field_name === field);
@@ -1267,47 +1288,50 @@ function CommentableCell({
   return (
     <Box sx={{ position: 'relative' }}>
       {children}
-      <IconButton
-        size="small"
+      <Box
         onClick={(e) => onCommentIconClick(field, e)}
         sx={{
           position: 'absolute',
           top: -2,
-          right: -2,
-          p: 0.15,
-          width: 18,
-          height: 18,
-          minWidth: 18,
-          bgcolor: hasComments ? 'primary.light' : 'grey.200',
-          border: '1px solid',
-          borderColor: hasComments ? 'primary.main' : 'grey.400',
-          borderRadius: '50%',
-          '@media print': { display: 'none' },
-          '&:hover': {
-            bgcolor: hasComments ? 'primary.main' : 'primary.light',
-            '& .MuiSvgIcon-root': { color: '#fff' },
-          },
+              right: -20,
+              cursor: 'pointer',
+              '@media print': { display: 'none' },
         }}
       >
-        <InfoOutlined sx={{ fontSize: 13, color: hasComments ? '#fff' : 'text.secondary' }} />
-      </IconButton>
-      {commentCount > 0 && (
-        <Chip
-          label={commentCount}
-          size="small"
+        <ChatBubbleOutlined
           sx={{
-            position: 'absolute',
-            top: -4,
-            right: 14,
-            height: 16,
-            minWidth: 16,
-            fontSize: '0.6rem',
-            bgcolor: 'primary.main',
-            color: '#fff',
-            '@media print': { display: 'none' },
-            '& .MuiChip-label': { px: 0.4, py: 0 },
+            fontSize: 18,
+            color: hasComments ? 'primary.main' : 'text.secondary',
           }}
         />
+      </Box>
+      {commentCount > 0 && (
+        <Box
+          onClick={(e) => onCommentIconClick(field, e)}
+          sx={{
+            position: 'absolute',
+            top: -6,
+            right: -25,
+            minWidth: 16,
+            height: 16,
+            px: 0.4,
+            borderRadius: '50%',
+            bgcolor: 'success.main',
+            color: '#fff',
+            fontSize: '0.6rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '2px solid',
+            borderColor: '#fff',
+            cursor: 'pointer',
+            lineHeight: 1,
+            '@media print': { display: 'none' },
+          }}
+        >
+          {commentCount}
+        </Box>
       )}
     </Box>
   );
@@ -1331,7 +1355,7 @@ const StandardInjectionRowCells = memo(function StandardInjectionRowCells({
   onChange?: (index: number, field: keyof StandardInjectionRow, value: string) => void;
   onBlur?: (field: string) => void;
   fieldComments?: FieldComment[];
-  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  onAddFieldComment?: (fieldName: string, comment: string) => void | Promise<void>;
   onCommentIconClick: (fieldName: string, event: React.MouseEvent<HTMLElement>) => void;
 }) {
   const fieldName = `standard_injections.${index}.area_count`;
@@ -1394,7 +1418,7 @@ const SampleRowCells = memo(function SampleRowCells({
   onChange?: (index: number, field: keyof SampleRow, value: string) => void;
   onBlur?: (field: string) => void;
   fieldComments?: FieldComment[];
-  onAddFieldComment?: (fieldName: string, comment: string) => Promise<void>;
+  onAddFieldComment?: (fieldName: string, comment: string) => void | Promise<void>;
   onCommentIconClick: (fieldName: string, event: React.MouseEvent<HTMLElement>) => void;
 }) {
   const averageArea = formatAverageValue(row.injection_1, row.injection_2);

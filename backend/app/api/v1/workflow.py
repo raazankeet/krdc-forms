@@ -27,6 +27,16 @@ class WorkflowBody(BaseModel):
     comment: Optional[str] = None
 
 
+def _submission_context(db: Session, submission: Submission) -> dict:
+    """Build audit context with request number and form name."""
+    context = {"request_number": submission.request_number}
+    form = db.query(Form).filter(Form.id == submission.form_id).first()
+    if form:
+        context["form_name"] = form.name
+        context["form_code"] = form.form_code
+    return context
+
+
 def _role_names(user: User) -> set[str]:
     return {user_role.role.name for user_role in user.user_roles}
 
@@ -138,7 +148,7 @@ async def submit_submission(
     db.commit()
 
     await log_event(db=db, user=current_user, action="submission.submitted", entity_type="submission",
-                    entity_id=str(submission.id), request=request)
+                    entity_id=str(submission.id), new_value=_submission_context(db, submission), request=request)
     return {"success": True, "data": {"status": new_status.value if hasattr(new_status, 'value') else str(new_status)}}
 
 
@@ -203,7 +213,7 @@ async def start_review(
     db.commit()
 
     await log_event(db=db, user=current_user, action="submission.review_started", entity_type="submission",
-                    entity_id=str(submission.id), request=request)
+                    entity_id=str(submission.id), new_value=_submission_context(db, submission), request=request)
     return {"success": True, "data": {"status": from_status.value if hasattr(from_status, 'value') else str(from_status)}}
 
 
@@ -293,7 +303,7 @@ async def approve_submission(
     db.commit()
 
     await log_event(db=db, user=current_user, action="submission.approved", entity_type="submission",
-                    entity_id=str(submission.id), request=request)
+                    entity_id=str(submission.id), new_value=_submission_context(db, submission), request=request)
     return {"success": True, "data": {"status": "approved"}}
 
 
@@ -353,7 +363,7 @@ async def reject_submission(
     db.commit()
 
     await log_event(db=db, user=current_user, action="submission.rejected", entity_type="submission",
-                    entity_id=str(submission.id), request=request)
+                    entity_id=str(submission.id), new_value=_submission_context(db, submission), request=request)
     return {"success": True, "data": {"status": "rejected"}}
 
 
@@ -426,7 +436,7 @@ async def request_changes(
     db.commit()
 
     await log_event(db=db, user=current_user, action="submission.changes_requested", entity_type="submission",
-                    entity_id=str(submission.id), request=request)
+                    entity_id=str(submission.id), new_value=_submission_context(db, submission), request=request)
     return {"success": True, "data": {"status": "needs_correction"}}
 
 
@@ -469,7 +479,7 @@ async def resubmit_submission(
     db.commit()
 
     await log_event(db=db, user=current_user, action="submission.resubmitted", entity_type="submission",
-                    entity_id=str(submission.id), request=request)
+                    entity_id=str(submission.id), new_value=_submission_context(db, submission), request=request)
     return {"success": True, "data": {"status": new_status.value if hasattr(new_status, 'value') else str(new_status)}}
 
 

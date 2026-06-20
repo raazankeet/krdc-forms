@@ -5,7 +5,7 @@ import {
 } from '@mui/material';
 import {
   Dashboard, Description, RateReview, Assignment,
-  People, DynamicForm, History, ChevronLeft, ChevronRight,
+  People, DynamicForm, History, Timeline, ChevronLeft, ChevronRight,
   ManageSearch,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
@@ -32,6 +32,7 @@ const navItems: NavItem[] = [
   { label: 'User Management', path: '/admin/users', icon: <People />, roles: ['Administrator'] },
   { label: 'Form Management', path: '/admin/forms', icon: <DynamicForm />, roles: ['Administrator'] },
   { label: 'Audit Log', path: '/admin/audit', icon: <History />, roles: ['Administrator'] },
+  { label: 'Request Tracker', path: '/admin/request-tracker', icon: <Timeline />, roles: ['Administrator'] },
 ];
 
 interface SidebarProps {

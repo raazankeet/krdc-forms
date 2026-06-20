@@ -170,13 +170,31 @@ async def login(request: Request, body: LoginRequest, db: Session = Depends(get_
 
 @router.post("/logout")
 async def logout(request: Request, db: Session = Depends(get_db)):
-    """Logout user — denylist token and clear cookies."""
+    """Logout user — denylist token, clear cookies, and audit."""
     token = _get_token_from_cookie(request, "access_token")
+    user = None
     if token:
+        # Decode token to identify user for audit
+        payload = decode_token(token)
+        if payload:
+            user_id = payload.get("sub")
+            if user_id:
+                user = db.query(User).filter(User.id == int(user_id)).first()
         denylist_token(token)
 
     response = JSONResponse(content={"success": True, "data": None, "message": "Logged out successfully"})
     _clear_auth_cookies(response)
+
+    if user:
+        await log_event(
+            db=db,
+            user=user,
+            action="user.logout",
+            entity_type="user",
+            entity_id=str(user.id),
+            request=request,
+        )
+
     return response
 
 

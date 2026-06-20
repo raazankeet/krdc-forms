@@ -164,6 +164,7 @@ export interface WorkflowAction {
 
 // ============= Audit =============
 export interface AuditLog {
+  user_name?: string;
   id: number;
   event_id: string;
   timestamp: string;
@@ -172,6 +173,8 @@ export interface AuditLog {
   action: string;
   entity_type: string;
   entity_id: string;
+  entity_label?: string;
+  entity_form?: string;
   old_value: Record<string, unknown> | null;
   new_value: Record<string, unknown> | null;
   ip_address: string;
@@ -257,6 +260,7 @@ export interface WorkflowAction {
 
 // ============= Audit =============
 export interface AuditLog {
+  user_name?: string;
   id: number;
   event_id: string;
   timestamp: string;
@@ -265,6 +269,8 @@ export interface AuditLog {
   action: string;
   entity_type: string;
   entity_id: string;
+  entity_label?: string;
+  entity_form?: string;
   old_value: Record<string, unknown> | null;
   new_value: Record<string, unknown> | null;
   ip_address: string;
